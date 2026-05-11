@@ -1,0 +1,73 @@
+{
+  "prefix": "MPSHOT",
+  "documentSummary": {
+    "name": "邮件签约通知（演示） Mockplus 页面测试分析",
+    "type": "mockplus-page",
+    "parseResult": "基于 Mockplus 页面结构化内容生成，已提取标题、字段、按钮、状态和正文片段。",
+    "missingInfo": "未覆盖隐藏交互、接口校验、权限矩阵和非可见状态。"
+  },
+  "requirementSummary": [
+    "页面标题包括：企业邀请承包商签约合同。",
+    "字段标签包括：签约通知。",
+    "操作入口包括：立即查看。"
+  ],
+  "openQuestions": [
+    "该结果仅基于 Mockplus 页面可见内容生成，页面之外的业务规则仍需补充确认。",
+    "未识别到邮件签约通知（演示）模块明确状态文案，需补充状态定义。"
+  ],
+  "testScope": [
+    "邮件签约通知模块页面展示",
+    "邮件签约通知可见按钮与操作入口",
+    "邮件签约通知正文说明与通知内容"
+  ],
+  "risks": [
+    "Mockplus 页面内容基于视觉结构提取，页面之外的业务规则仍需补充确认。"
+  ],
+  "testCases": [
+    {
+      "id": "MPSHOT-001",
+      "module": "邮件签约通知",
+      "scenario": "页面展示",
+      "title": "邮件签约通知模块正确展示关键标题和字段文案",
+      "preconditions": "邮件签约通知（演示）模块截图已生成，页面可正常打开。",
+      "steps": [
+        "打开模块页面。",
+        "查看页面主标题、字段标签和可见文案。"
+      ],
+      "expectedResult": "页面展示关键标题或字段，例如：企业邀请承包商签约合同、签约通知。",
+      "priority": "P1",
+      "testType": "功能",
+      "notes": "仅基于 Mockplus 页面可见内容生成。"
+    },
+    {
+      "id": "MPSHOT-002",
+      "module": "邮件签约通知",
+      "scenario": "操作入口",
+      "title": "邮件签约通知模块展示关键操作按钮和入口",
+      "preconditions": "邮件签约通知（演示）模块页面可正常打开。",
+      "steps": [
+        "打开模块页面。",
+        "查看页面中可见的按钮、操作入口或 CTA。"
+      ],
+      "expectedResult": "页面存在关键操作入口，例如：立即查看。",
+      "priority": "P1",
+      "testType": "功能",
+      "notes": "未覆盖按钮点击后的隐藏流程。"
+    },
+    {
+      "id": "MPSHOT-003",
+      "module": "邮件签约通知",
+      "scenario": "正文说明",
+      "title": "邮件签约通知模块正确展示关键业务说明和通知文案",
+      "preconditions": "邮件签约通知（演示）模块页面可正常打开。",
+      "steps": [
+        "打开模块页面。",
+        "查看页面正文区域的说明、通知或邮件内容。"
+      ],
+      "expectedResult": "页面展示与业务相关的说明文案，例如：企业邀请承包商签约合同，请尽快查看并完成签署。；Invitation to sign IC Paylink service agreement。",
+      "priority": "P2",
+      "testType": "功能",
+      "notes": "适用于邮件、通知、规则说明等内容型页面。"
+    }
+  ]
+}

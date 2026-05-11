@@ -1,0 +1,21 @@
+{
+  "module": "邮件签约通知（演示）",
+  "risks": [],
+  "extracted": {
+    "titles": [
+      "企业邀请承包商签约合同"
+    ],
+    "buttons": [
+      "立即查看"
+    ],
+    "labels": [
+      "签约通知"
+    ],
+    "tableHeaders": [],
+    "statuses": [],
+    "bodyText": [
+      "企业邀请承包商签约合同，请尽快查看并完成签署。",
+      "Invitation to sign IC Paylink service agreement"
+    ]
+  }
+}

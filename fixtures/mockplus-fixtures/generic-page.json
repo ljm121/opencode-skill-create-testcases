@@ -1,0 +1,29 @@
+{
+  "module": {
+    "name": "客户管理"
+  },
+  "rootPage": {
+    "name": "客户管理",
+    "headings": [
+      "客户管理"
+    ],
+    "labels": [
+      "客户名称",
+      "客户编码"
+    ],
+    "buttons": [
+      "新建客户"
+    ],
+    "tableHeaders": [
+      "客户名称",
+      "状态"
+    ],
+    "statusTexts": [
+      "启用"
+    ],
+    "bodyText": [
+      "查看客户信息并维护客户资料。"
+    ]
+  },
+  "secondLayerPages": []
+}
