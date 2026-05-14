@@ -88,37 +88,51 @@ URL 输入采用 **agent 桥接**方式工作：
 | `-InputUrl <url> -InputJsonText '<json>'` | 正常导出，且 `inputJson` 字段记录为 `url:<url>` |
 | `-Preview`（开关参数） | 预览模式，只输出分析摘要 JSON 到 stdout，不生成任何文件 |
 
+## 临时文件约束
+
+- 执行过程中不得在 skill 根目录生成调试中间产物。
+- 不得把用户输入文档复制成 `temp_doc.docx`。
+- 不得生成 `extracted_content.txt`、`补充逻辑-提取内容.txt` 等调试提取文件。
+- `DOCX` 读取应走导出脚本内置的内存解析逻辑；`DOC` / `PDF` 读取应走 Office COM 只读读取。
+- 除用户明确确认外，只允许生成最终导出的 `.md`、`.xlsx`、`.xmind` 文件，且输出位置应为 `exports/` 或用户指定目录。
+
 ## 环境与维护
 
 ### 迁移清单
 
-1. 复制整个 `create-testcases` 目录，不要只复制 `scripts/`
-2. 至少确认这些内容一起带走：`package.json`、`scripts/`、`templates/default-template.xmind`
+1. 将迁移包解压到目标工作区的 `<workspace>\.opencode\skills\create-testcases\`
+2. 至少确认这些内容一起带走：`SKILL.md`、`README.md`、`package.json`、`package-lock.json`、`scripts/`、`templates/default-template.xmind`、`fixtures/`
 3. 新电脑需要：`Node.js >= 20`、Windows PowerShell
-4. 如果要解析 `DOC` / `PDF`，还需要本机可用的 Microsoft Word COM 环境
-5. 进入 skill 根目录后执行：
+4. 如需 Mockplus 抓取能力，必须安装 Playwright Chromium；如需解析 `DOC` / `PDF`，还需要本机可用的 Microsoft Word COM 环境
+5. 进入 skill 根目录后执行完整初始化：
 
 ```powershell
+cd <workspace>\.opencode\skills\create-testcases
 npm install
+npm run setup:browsers
 node .\scripts\verify-runtime.mjs
+npm test
 ```
 
-6. 或直接执行：
+6. 也可以执行初始化脚本安装依赖并检查运行环境：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ".\scripts\setup-runtime.ps1"
 ```
 
-7. 迁移完成后再运行：
+7. 如果使用第 6 步，仍需单独安装 Mockplus 抓取所需 Chromium，并运行完整测试：
 
 ```powershell
+npm run setup:browsers
 node .\scripts\verify-runtime.mjs
 npm test
 ```
 
-8. 最后做一次最小验证：
+8. 迁移包不携带 `node_modules/`、`.git/`、`exports/`；`node_modules/` 通过 `npm install` 重新生成，`exports/` 会在导出时按需创建
+9. 最后做一次最小验证：
    - 一次本地文件输入
-   - 一次 URL 输入（可选：验证 webfetch 流程）
+   - 一次 URL 输入（可选：验证 `webfetch` 流程）
+   - 一次 Mockplus 公开分享链接输入（验证 Playwright Chromium 抓取流程）
 
 ### OpenCode 自动识别
 

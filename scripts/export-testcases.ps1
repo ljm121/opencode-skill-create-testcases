@@ -1711,7 +1711,13 @@ if ($Preview.IsPresent) {
 }
 
 if (-not $OutputDir) {
-    $OutputDir = Join-Path (Get-Location) 'exports/testcases'
+    $defaultName = if ($data -and $data.documentSummary -and $data.documentSummary.name) {
+        $data.documentSummary.name
+    } else {
+        '测试用例'
+    }
+    $safeName = Get-SafeFileName -Name $defaultName
+    $OutputDir = Join-Path (Get-Location) "exports/$safeName"
 }
 
 Ensure-Directory -Path $OutputDir
