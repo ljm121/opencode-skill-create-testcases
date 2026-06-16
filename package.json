@@ -11,6 +11,7 @@
   "scripts": {
     "setup:browsers": "playwright install chromium",
     "verify:runtime": "node ./scripts/verify-runtime.mjs",
+    "run:web-testcases": "node ./scripts/run-web-testcases.mjs",
     "test:builder": "node --test ./scripts/build-mockplus-testcases.test.mjs",
     "test:inputpath": "node --test ./scripts/export-inputpath.test.mjs",
     "test:mockplus": "node --test ./scripts/export-mockplus.test.mjs",
@@ -19,7 +20,8 @@
     "test:verify": "node --test ./scripts/verify-runtime.test.mjs",
     "test:pure": "node --test ./scripts/fetch-mockplus-content.test.mjs",
     "test:summarize": "node --test ./scripts/fetch-and-summarize-design.test.mjs",
-    "test": "npm run test:builder && npm run test:inputpath && npm run test:mockplus && npm run test:exporter && npm run test:layout && npm run test:verify && npm run test:pure && npm run test:summarize"
+    "test:web-runner": "node --test ./scripts/run-web-testcases.test.mjs",
+    "test": "npm run test:builder && npm run test:inputpath && npm run test:mockplus && npm run test:exporter && npm run test:layout && npm run test:verify && npm run test:pure && npm run test:summarize && npm run test:web-runner"
   },
   "dependencies": {
     "playwright": "^1.53.2"

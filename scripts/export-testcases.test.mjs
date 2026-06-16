@@ -34,6 +34,35 @@ function runMergedExport(outputDir, extraArgs = []) {
   ]);
 }
 
+function runSampleExportWithoutOutputDir(extraArgs = []) {
+  return runExportCommand([
+    '-ExecutionPolicy', 'Bypass',
+    '-File', exporterScriptPath,
+    '-InputJson', sampleInputPath,
+    ...extraArgs,
+  ]);
+}
+
+function runInlineExportToDir(input, outputDir, extraArgs = []) {
+  return runExportToDir(JSON.stringify(input), outputDir, extraArgs).then((result) => {
+    if (result.code !== 0) {
+      throw new Error(`export-testcases.ps1 exited with code ${result.code}\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
+    }
+    return { stdout: result.stdout, stderr: result.stderr };
+  });
+}
+
+function runExportWithHistory(historyPath, outputDir, extraArgs = []) {
+  return runExportCommand([
+    '-ExecutionPolicy', 'Bypass',
+    '-File', exporterScriptPath,
+    '-InputJson', sampleInputPath,
+    '-HistoryPath', historyPath,
+    '-OutputDir', outputDir,
+    ...extraArgs,
+  ]);
+}
+
 function runExportCommand(args) {
   return spawnAsync('powershell', args).then((result) => {
     if (result.code !== 0) {
@@ -51,6 +80,17 @@ function runExportWithInputPath(inputPath, outputDir, extraArgs = []) {
     '-OutputDir', outputDir,
     ...extraArgs,
   ]);
+}
+
+async function writeHistoryMarkdown(filePath) {
+  await fs.writeFile(filePath, [
+    '# 历史测试用例',
+    '',
+    '| 功能模块 | 场景分类 | 用例标题 | 测试步骤 | 预期结果 | 优先级 | 测试类型 |',
+    '|---|---|---|---|---|---|---|',
+    '| 邮件签约通知 | 页面展示 | 历史校验邮件签约通知展示 | 打开页面；查看标题 | 页面展示企业邀请承包商签约合同 | P1 | 功能 |',
+    '| 邮件签约通知 | 操作入口 | 历史校验立即查看入口 | 打开页面；点击立即查看 | 系统进入签约详情 | P1 | 功能 |',
+  ].join('\n'), 'utf8');
 }
 
 async function writeMinimalDocx(docxPath, documentXml) {
@@ -90,18 +130,44 @@ test('export-testcases writes merged artifacts with business-scope filenames', a
     const result = JSON.parse(stdout);
     const entries = await fs.readdir(tempDir);
 
+    assert.equal(result.outputDir, tempDir);
+    assert.equal(result.quality.status, 'passed');
+    assert.equal(result.quality.totalIssues, 0);
     assert.equal(entries.length, 3);
     assert.ok(entries.some(e => e.endsWith('.md')));
     assert.ok(entries.some(e => e.endsWith('.xlsx')));
     assert.ok(entries.some(e => e.endsWith('.xmind')));
 
     for (const mod of result.modules) {
+      assert.equal(mod.quality.status, 'passed');
       for (const filePath of Object.values(mod.files)) {
         await fs.access(filePath);
+        const stat = await fs.stat(filePath);
+        assert.ok(stat.size > 0);
       }
     }
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('export-testcases uses timestamped default output directory when OutputDir is omitted', async () => {
+  let outputDir;
+
+  try {
+    const { stdout } = await runSampleExportWithoutOutputDir();
+    const result = JSON.parse(stdout);
+    outputDir = result.outputDir;
+    const directoryName = path.basename(outputDir);
+
+    assert.equal(path.dirname(outputDir), path.join(skillRoot, 'exports'));
+    assert.match(directoryName, /^邮件签约通知（演示） Mockplus 页面测试分析-json-\d{8}-\d{6}输出$/);
+    assert.equal(result.quality.status, 'passed');
+    await fs.access(outputDir);
+  } finally {
+    if (outputDir) {
+      await fs.rm(outputDir, { recursive: true, force: true });
+    }
   }
 });
 
@@ -123,6 +189,89 @@ test('export-testcases accepts inline json text with merged output', async () =>
         await fs.access(filePath);
       }
     }
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('export-testcases reports quality warnings for incomplete test case data', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-quality-'));
+  const incompleteInput = JSON.parse(JSON.stringify(sampleInput));
+  delete incompleteInput.testCases[0].expectedResult;
+  incompleteInput.testCases[0].steps = [];
+  incompleteInput.testCases[0].priority = 'P0';
+
+  try {
+    const { stdout } = await runInlineExportToDir(incompleteInput, tempDir);
+    const result = JSON.parse(stdout);
+    const issueCodes = result.quality.issues.map(issue => issue.code);
+
+    assert.equal(result.quality.status, 'warning');
+    assert.equal(result.modules[0].quality.status, 'warning');
+    assert.ok(issueCodes.includes('field_missing'));
+    assert.ok(issueCodes.includes('steps_empty'));
+    assert.ok(issueCodes.includes('priority_invalid'));
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('export-testcases applies single markdown HistoryPath impact context across outputs', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-history-md-'));
+  const historyPath = path.join(tempDir, 'history.md');
+  const outputDir = path.join(tempDir, 'out');
+
+  try {
+    await writeHistoryMarkdown(historyPath);
+    const { stdout } = await runExportWithHistory(historyPath, outputDir);
+    const result = JSON.parse(stdout);
+    const mdFile = result.modules[0].files.markdown;
+    const xlsxFile = result.modules[0].files.excel;
+    const xmindFile = result.modules[0].files.xmind;
+
+    const markdown = await fs.readFile(mdFile, 'utf8');
+    const excelStrings = await readZipEntry(xlsxFile, 'xl/sharedStrings.xml');
+    const xmindContent = await readZipEntry(xmindFile, 'content.json');
+
+    assert.ok(result.historyContext);
+    assert.ok(result.historyContext.impactedModules.some(item => item.module === '邮件签约通知'));
+    assert.match(markdown, /历史影响范围/);
+    assert.match(markdown, /关联历史用例/);
+    assert.match(excelStrings, /影响范围/);
+    assert.match(excelStrings, /关联历史用例/);
+    assert.match(xmindContent, /历史影响/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('export-testcases reads mixed history directory and reports parse warnings', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-history-dir-'));
+  const historyDir = path.join(tempDir, 'history');
+  const seedOut = path.join(tempDir, 'seed');
+  const outputDir = path.join(tempDir, 'out');
+
+  try {
+    await fs.mkdir(historyDir, { recursive: true });
+    await writeHistoryMarkdown(path.join(historyDir, 'history.md'));
+    await fs.writeFile(path.join(historyDir, 'history.json'), JSON.stringify(sampleInput), 'utf8');
+    await runExport(seedOut);
+    for (const entry of await fs.readdir(seedOut)) {
+      if (entry.endsWith('.xlsx') || entry.endsWith('.xmind')) {
+        await fs.copyFile(path.join(seedOut, entry), path.join(historyDir, entry));
+      }
+    }
+    await fs.writeFile(path.join(historyDir, 'broken.xmind'), 'not a zip', 'utf8');
+
+    const { stdout } = await runExportWithHistory(historyDir, outputDir);
+    const result = JSON.parse(stdout);
+    const sources = result.historyContext.sources;
+
+    assert.ok(sources.some(source => source.path.endsWith('.md') && source.status === 'success'));
+    assert.ok(sources.some(source => source.path.endsWith('.xlsx') && source.status === 'success'));
+    assert.ok(sources.some(source => source.path.endsWith('.xmind') && source.status === 'success'));
+    assert.ok(sources.some(source => source.path.endsWith('broken.xmind') && source.status === 'failed'));
+    assert.ok(result.historyContext.relatedCases.length > 0);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -199,6 +348,8 @@ test('export-testcases can split by module with -SplitByModule flag', async () =
 
     // Each module gets its own subdirectory
     assert.ok(result.modules.length >= 1);
+    assert.equal(result.quality.status, 'passed');
+    assert.equal(result.modules[0].quality.status, 'passed');
     const moduleDir = path.join(tempDir, moduleName);
     const entries = await fs.readdir(moduleDir);
 
@@ -335,15 +486,18 @@ test('export-testcases rejects InputPath combined with InputJson', async () => {
 test('preview mode outputs summary without writing files', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-test-'));
   try {
-    const { stdout } = await runExport(tmpDir, 'json', ['-Preview']);
+    const historyPath = path.join(tmpDir, 'history.md');
+    await writeHistoryMarkdown(historyPath);
+    const { stdout } = await runExport(tmpDir, 'json', ['-HistoryPath', historyPath, '-Preview']);
     const result = JSON.parse(stdout);
     assert.equal(result.preview, true);
     assert.ok(result.modules);
     assert.ok(result.totalTestCases > 0);
     assert.ok(result.risks);
     assert.ok(result.openQuestions);
+    assert.ok(result.historyContext.relatedCases.length > 0);
     const files = await fs.readdir(tmpDir).catch(() => []);
-    assert.equal(files.length, 0);
+    assert.deepEqual(files.sort(), ['history.md']);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }

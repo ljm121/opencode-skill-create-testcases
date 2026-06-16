@@ -8,11 +8,13 @@
 - 本地目录路径
 - 在线需求文档 URL（Confluence、PRD 链接、共享文档等）
 - 粘贴的需求文本
+- 可选：历史测试用例文件或目录路径（用于分析影响范围）
 
 ## 它会做什么
 
 - 读取并解析你提供的内容（包括通过 URL 获取在线内容）
 - 提炼功能模块、场景分类、测试范围、风险和待确认问题
+- 如提供历史用例路径，会结合历史用例识别影响范围、关联回归用例和潜在遗漏风险
 - 生成三类文件：`{业务范围名称}.md`、`{业务范围名称}.xlsx`、`{业务范围名称}.xmind`（按业务命名，而非统一 testcases）
 
 ## 默认处理方式
@@ -86,7 +88,24 @@ URL 输入采用 **agent 桥接**方式工作：
 |---|---|---|
 | `-InputUrl <url>`（单独） | 输出 agent 桥接指引信息，指导 agent 下一步操作 |
 | `-InputUrl <url> -InputJsonText '<json>'` | 正常导出，且 `inputJson` 字段记录为 `url:<url>` |
+| `-HistoryPath <path>` | 可选，读取历史 `.md`、`.xlsx`、`.xmind`、`.json` 用例文件或目录，生成历史影响范围 |
 | `-Preview`（开关参数） | 预览模式，只输出分析摘要 JSON 到 stdout，不生成任何文件 |
+
+### 历史用例影响范围
+
+如果需要生成用例时考虑历史回归资产，请显式提供历史用例路径：
+
+```text
+请使用 create-testcases，读取当前需求 C:\需求\paylink.md，并结合历史用例 C:\测试资产\历史用例\，先梳理需求点和历史影响范围给我确认，确认后再生成测试用例。
+```
+
+脚本层等价参数为：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\scripts\export-testcases.ps1" -InputPath "C:\需求\paylink.md" -HistoryPath "C:\测试资产\历史用例" -OutputDir ".\exports\paylink"
+```
+
+历史用例只在提供 `-HistoryPath` 时参与分析；不会默认扫描 `exports/`。导出结果会在 Markdown 中增加“历史影响范围”，在 Excel 中追加“影响范围”“关联历史用例”列，在 XMind 中为相关用例追加“历史影响”节点。
 
 ## 临时文件约束
 

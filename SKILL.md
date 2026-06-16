@@ -61,6 +61,7 @@ Agent: 生成并输出产物路径
 - 通过 `webfetch` 获取 URL 内容，解析 HTML/Markdown 并提取结构化需求
 - 支持通过本地文件路径或目录路径直接读取输入内容
 - 归纳测试范围、风险、待确认问题和结构化测试用例
+- 如用户提供历史测试用例路径，读取历史 `.md`、`.xlsx`、`.xmind`、`.json` 并分析影响范围
 - 按功能模块与场景导出 `Markdown`、`Excel`、`XMind` 三类测试用例文件
 - 对单文件输入、单 URL 输入或单目录输入，默认按合并方式生成一套总测试清单，同时在文件内容中保留模块分组
 
@@ -73,6 +74,7 @@ Agent: 生成并输出产物路径
 | URL | `webfetch` 获取内容 → 构造 JSON | 是 | 默认合并，记录 url 来源 | `{documentSummary.name}` |
 | 粘贴文本 | Agent 直接解析 → 构造 JSON | 是 | 默认合并 | `{documentSummary.name}` |
 | Mockplus | `fetch-mockplus-content.mjs` | 是 | 默认合并 | `{documentSummary.name}` |
+| 历史用例 | `-HistoryPath`（显式传历史文件或目录） | 是 | 仅辅助影响范围分析 | 不单独导出 |
 
 ## 工作流程（强制确认）
 
@@ -82,6 +84,7 @@ Agent: 生成并输出产物路径
    - 功能模块列表及各模块用例概览（数量、P1 数量）
    - 测试范围
    - 风险提示
+   - 历史影响范围（当用户提供历史用例路径时）
    - 待确认问题
 2. **确认后生成** — 用户确认分析摘要后，再执行导出。用户如有修改意见，按反馈调整后再生成。
 
@@ -111,6 +114,9 @@ Agent: 生成并输出产物路径
 
 风险提示：
 - <风险说明>
+
+历史影响范围：
+- <受影响模块 / 关联历史用例 / 回归风险；未提供历史路径时可省略>
 
 待确认问题：
 1. <问题说明>
@@ -178,6 +184,14 @@ Agent: 生成并输出产物路径
 | `testCases[].expectedResult` | string | 预期结果，必须可验证 |
 | `testCases[].priority` | string | P1/P2/P3 |
 | `testCases[].testType` | string | 功能/异常/边界/兼容/性能等 |
+| `historyContext` | object | 可选，历史用例影响范围分析结果 |
+| `historyContext.sources` | object[] | 历史用例来源文件及解析状态 |
+| `historyContext.impactedModules` | object[] | 受影响模块、关联历史用例数量和标题 |
+| `historyContext.relatedCases` | object[] | 当前用例与历史用例的关联关系 |
+| `historyContext.regressionRisks` | string[] | 建议重点回归的风险点 |
+| `historyContext.unmatchedRequirements` | string[] | 未匹配到历史用例的当前需求 |
+| `testCases[].historyImpact` | string | 可选，该用例命中的历史影响范围说明 |
+| `testCases[].relatedHistoryCases` | string[] | 可选，该用例关联的历史用例标题 |
 
 ## 输出结构
 
@@ -191,6 +205,11 @@ Agent: 生成并输出产物路径
 - `优先级`
 - `测试类型`
 
+当存在历史影响范围时，还会在 Excel/Markdown 用例表中追加：
+
+- `影响范围`
+- `关联历史用例`
+
 ## 关键规则
 
 - 所有输入方式默认合并导出为一套文件，按业务范围命名
@@ -199,6 +218,8 @@ Agent: 生成并输出产物路径
 - 脚本层提供 `-InputUrl` 参数支持：单独使用时输出 agent 桥接指引；配合 `-InputJsonText` 使用时将 URL 记录为输入来源（详见脚本对应 `-InputUrl` 参数说明）
 - agent 不得在展示需求分析摘要并获得用户确认前调用导出流程，不得跳过确认步骤直接生成文件
 - 当用户已提供本地路径、URL、目录路径或文件内容时，默认由 agent 直接读取、解析并生成产物，不应把命令调用示例作为主要回复内容
+- 当用户提供历史用例文件或目录时，agent 应通过 `-HistoryPath` 显式传入历史来源；不得默认扫描 `exports/` 当作历史用例来源
+- 历史影响范围用于辅助生成和回归评审，不得自动删除或覆盖当前需求生成的新用例
 - agent 不得在 skill 根目录生成调试中间产物，不得复制用户输入文档为 `temp_doc.docx`，不得生成 `extracted_content.txt`、`补充逻辑-提取内容.txt` 等调试提取文件
 - `DOCX` 解析应使用脚本内置的内存读取逻辑；`DOC` / `PDF` 解析应使用 Office COM 只读读取。除用户明确确认外，不得为了调试额外落盘输入副本或提取文本
 - 除最终导出的 `{业务范围名称}.md`、`{业务范围名称}.xlsx`、`{业务范围名称}.xmind` 外，不应生成额外文件；最终产物只允许写入 `exports/` 或用户指定的输出目录
