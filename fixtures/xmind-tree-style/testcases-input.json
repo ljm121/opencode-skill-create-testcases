@@ -1,0 +1,75 @@
+{
+    "prefix":  "TREE",
+    "documentSummary":  {
+                            "name":  "登录业务树样例",
+                            "type":  "tree-fixture",
+                            "parseResult":  "用于验证显式 XMind 树形输入",
+                            "missingInfo":  ""
+                        },
+    "requirementSummary":  [
+                               "登录页按历史 XMind 业务树输出"
+                           ],
+    "testScope":  [
+                      "登录页"
+                  ],
+    "risks":  [
+
+              ],
+    "openQuestions":  [
+
+                      ],
+    "testCases":  [
+                      {
+                          "module":  "登录",
+                          "scenario":  "账号密码登录",
+                          "title":  "输入正确账号密码后登录",
+                          "steps":  [
+                                        "进入登录页",
+                                        "输入账号和密码",
+                                        "点击登录"
+                                    ],
+                          "expectedResult":  "跳转到首页并展示对应权限菜单",
+                          "priority":  "P1",
+                          "testType":  "功能"
+                      }
+                  ],
+    "xmindTree":  [
+                      {
+                          "title":  "登录",
+                          "children":  [
+                                           {
+                                               "title":  "入口",
+                                               "children":  [
+                                                                {
+                                                                    "title":  "访问管理后台登录页"
+                                                                }
+                                                            ]
+                                           },
+                                           {
+                                               "title":  "点击后",
+                                               "children":  [
+                                                                {
+                                                                    "title":  "点击[登录]",
+                                                                    "children":  [
+                                                                                     {
+                                                                                         "title":  "校验账号和密码"
+                                                                                     },
+                                                                                     {
+                                                                                         "title":  "跳转到首页并展示对应权限菜单"
+                                                                                     }
+                                                                                 ]
+                                                                }
+                                                            ]
+                                           },
+                                           {
+                                               "title":  "数据落点",
+                                               "children":  [
+                                                                {
+                                                                    "title":  "写入登录日志"
+                                                                }
+                                                            ]
+                                           }
+                                       ]
+                      }
+                  ]
+}

@@ -19,7 +19,6 @@ function parseArgs(argv) {
     outputDir: 'exports/mockplus',
     headed: false,
     timeoutMs: 30000,
-    cleanup: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -60,9 +59,6 @@ function parseArgs(argv) {
           throw new Error('--max-depth 必须是 2-5 之间的整数');
         }
         i += 1;
-        break;
-      case '--cleanup':
-        options.cleanup = true;
         break;
       default:
         throw new Error(`不支持的参数：${current}`);
@@ -671,30 +667,6 @@ async function fetchSingleUrl(browser, url, options) {
   }
 }
 
-async function cleanupArtifacts(status) {
-  if (!status?.success || !status?.files) return;
-
-  const shareDir = path.dirname(status.files.status || '');
-  const shareRaw = status.files.raw;
-  const shareNormalized = status.files.normalized;
-
-  for (const file of [shareRaw, shareNormalized]) {
-    if (file) {
-      try { await fs.unlink(file); } catch { /* ignore */ }
-    }
-  }
-
-  for (const moduleResult of (status.modules || [])) {
-    const rawFile = moduleResult?.files?.raw;
-    const normalizedFile = moduleResult?.files?.normalized;
-    for (const file of [rawFile, normalizedFile]) {
-      if (file) {
-        try { await fs.unlink(file); } catch { /* ignore */ }
-      }
-    }
-  }
-}
-
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const urls = await loadUrls(options);
@@ -706,11 +678,7 @@ async function main() {
   try {
     const results = [];
     for (const url of urls) {
-      const status = await fetchSingleUrl(browser, url, options);
-      results.push(status);
-      if (options.cleanup) {
-        await cleanupArtifacts(status);
-      }
+      results.push(await fetchSingleUrl(browser, url, options));
     }
     process.stdout.write(`${JSON.stringify({ outputDir: path.resolve(options.outputDir), results }, null, 2)}\n`);
   } finally {

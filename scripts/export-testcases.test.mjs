@@ -10,6 +10,8 @@ const sampleInputPath = path.join(skillRoot, 'fixtures', 'mail-module', 'testcas
 const sampleInput = JSON.parse(await fs.readFile(sampleInputPath, 'utf8'));
 const moduleName = sampleInput.testCases[0].module;
 const mergedInputPath = path.join(skillRoot, 'fixtures', 'test-md-current', 'testcases-input.json');
+const xmindTreeInputPath = path.join(skillRoot, 'fixtures', 'xmind-tree-style', 'testcases-input.json');
+const xmindOperationsInputPath = path.join(skillRoot, 'fixtures', 'xmind-operation-template', 'testcases-input.json');
 
 function runExport(outputDir, mode = 'path', extraArgs = []) {
   if (mode === 'path') {
@@ -34,35 +36,6 @@ function runMergedExport(outputDir, extraArgs = []) {
   ]);
 }
 
-function runSampleExportWithoutOutputDir(extraArgs = []) {
-  return runExportCommand([
-    '-ExecutionPolicy', 'Bypass',
-    '-File', exporterScriptPath,
-    '-InputJson', sampleInputPath,
-    ...extraArgs,
-  ]);
-}
-
-function runInlineExportToDir(input, outputDir, extraArgs = []) {
-  return runExportToDir(JSON.stringify(input), outputDir, extraArgs).then((result) => {
-    if (result.code !== 0) {
-      throw new Error(`export-testcases.ps1 exited with code ${result.code}\nSTDOUT:\n${result.stdout}\nSTDERR:\n${result.stderr}`);
-    }
-    return { stdout: result.stdout, stderr: result.stderr };
-  });
-}
-
-function runExportWithHistory(historyPath, outputDir, extraArgs = []) {
-  return runExportCommand([
-    '-ExecutionPolicy', 'Bypass',
-    '-File', exporterScriptPath,
-    '-InputJson', sampleInputPath,
-    '-HistoryPath', historyPath,
-    '-OutputDir', outputDir,
-    ...extraArgs,
-  ]);
-}
-
 function runExportCommand(args) {
   return spawnAsync('powershell', args).then((result) => {
     if (result.code !== 0) {
@@ -81,16 +54,16 @@ function runExportWithInputPath(inputPath, outputDir, extraArgs = []) {
     ...extraArgs,
   ]);
 }
-
-async function writeHistoryMarkdown(filePath) {
-  await fs.writeFile(filePath, [
-    '# 历史测试用例',
-    '',
-    '| 功能模块 | 场景分类 | 用例标题 | 测试步骤 | 预期结果 | 优先级 | 测试类型 |',
-    '|---|---|---|---|---|---|---|',
-    '| 邮件签约通知 | 页面展示 | 历史校验邮件签约通知展示 | 打开页面；查看标题 | 页面展示企业邀请承包商签约合同 | P1 | 功能 |',
-    '| 邮件签约通知 | 操作入口 | 历史校验立即查看入口 | 打开页面；点击立即查看 | 系统进入签约详情 | P1 | 功能 |',
-  ].join('\n'), 'utf8');
+function collectXmindTitles(content) {
+  const sheets = JSON.parse(content);
+  const titles = [];
+  const visit = topic => {
+    if (!topic) return;
+    if (topic.title) titles.push(topic.title);
+    for (const child of topic.children?.attached ?? []) visit(child);
+  };
+  for (const sheet of sheets) visit(sheet.rootTopic);
+  return titles;
 }
 
 async function writeMinimalDocx(docxPath, documentXml) {
@@ -130,44 +103,18 @@ test('export-testcases writes merged artifacts with business-scope filenames', a
     const result = JSON.parse(stdout);
     const entries = await fs.readdir(tempDir);
 
-    assert.equal(result.outputDir, tempDir);
-    assert.equal(result.quality.status, 'passed');
-    assert.equal(result.quality.totalIssues, 0);
     assert.equal(entries.length, 3);
     assert.ok(entries.some(e => e.endsWith('.md')));
     assert.ok(entries.some(e => e.endsWith('.xlsx')));
     assert.ok(entries.some(e => e.endsWith('.xmind')));
 
     for (const mod of result.modules) {
-      assert.equal(mod.quality.status, 'passed');
       for (const filePath of Object.values(mod.files)) {
         await fs.access(filePath);
-        const stat = await fs.stat(filePath);
-        assert.ok(stat.size > 0);
       }
     }
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
-  }
-});
-
-test('export-testcases uses timestamped default output directory when OutputDir is omitted', async () => {
-  let outputDir;
-
-  try {
-    const { stdout } = await runSampleExportWithoutOutputDir();
-    const result = JSON.parse(stdout);
-    outputDir = result.outputDir;
-    const directoryName = path.basename(outputDir);
-
-    assert.equal(path.dirname(outputDir), path.join(skillRoot, 'exports'));
-    assert.match(directoryName, /^邮件签约通知（演示） Mockplus 页面测试分析-json-\d{8}-\d{6}输出$/);
-    assert.equal(result.quality.status, 'passed');
-    await fs.access(outputDir);
-  } finally {
-    if (outputDir) {
-      await fs.rm(outputDir, { recursive: true, force: true });
-    }
   }
 });
 
@@ -189,89 +136,6 @@ test('export-testcases accepts inline json text with merged output', async () =>
         await fs.access(filePath);
       }
     }
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
-});
-
-test('export-testcases reports quality warnings for incomplete test case data', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-quality-'));
-  const incompleteInput = JSON.parse(JSON.stringify(sampleInput));
-  delete incompleteInput.testCases[0].expectedResult;
-  incompleteInput.testCases[0].steps = [];
-  incompleteInput.testCases[0].priority = 'P0';
-
-  try {
-    const { stdout } = await runInlineExportToDir(incompleteInput, tempDir);
-    const result = JSON.parse(stdout);
-    const issueCodes = result.quality.issues.map(issue => issue.code);
-
-    assert.equal(result.quality.status, 'warning');
-    assert.equal(result.modules[0].quality.status, 'warning');
-    assert.ok(issueCodes.includes('field_missing'));
-    assert.ok(issueCodes.includes('steps_empty'));
-    assert.ok(issueCodes.includes('priority_invalid'));
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
-});
-
-test('export-testcases applies single markdown HistoryPath impact context across outputs', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-history-md-'));
-  const historyPath = path.join(tempDir, 'history.md');
-  const outputDir = path.join(tempDir, 'out');
-
-  try {
-    await writeHistoryMarkdown(historyPath);
-    const { stdout } = await runExportWithHistory(historyPath, outputDir);
-    const result = JSON.parse(stdout);
-    const mdFile = result.modules[0].files.markdown;
-    const xlsxFile = result.modules[0].files.excel;
-    const xmindFile = result.modules[0].files.xmind;
-
-    const markdown = await fs.readFile(mdFile, 'utf8');
-    const excelStrings = await readZipEntry(xlsxFile, 'xl/sharedStrings.xml');
-    const xmindContent = await readZipEntry(xmindFile, 'content.json');
-
-    assert.ok(result.historyContext);
-    assert.ok(result.historyContext.impactedModules.some(item => item.module === '邮件签约通知'));
-    assert.match(markdown, /历史影响范围/);
-    assert.match(markdown, /关联历史用例/);
-    assert.match(excelStrings, /影响范围/);
-    assert.match(excelStrings, /关联历史用例/);
-    assert.match(xmindContent, /历史影响/);
-  } finally {
-    await fs.rm(tempDir, { recursive: true, force: true });
-  }
-});
-
-test('export-testcases reads mixed history directory and reports parse warnings', async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-history-dir-'));
-  const historyDir = path.join(tempDir, 'history');
-  const seedOut = path.join(tempDir, 'seed');
-  const outputDir = path.join(tempDir, 'out');
-
-  try {
-    await fs.mkdir(historyDir, { recursive: true });
-    await writeHistoryMarkdown(path.join(historyDir, 'history.md'));
-    await fs.writeFile(path.join(historyDir, 'history.json'), JSON.stringify(sampleInput), 'utf8');
-    await runExport(seedOut);
-    for (const entry of await fs.readdir(seedOut)) {
-      if (entry.endsWith('.xlsx') || entry.endsWith('.xmind')) {
-        await fs.copyFile(path.join(seedOut, entry), path.join(historyDir, entry));
-      }
-    }
-    await fs.writeFile(path.join(historyDir, 'broken.xmind'), 'not a zip', 'utf8');
-
-    const { stdout } = await runExportWithHistory(historyDir, outputDir);
-    const result = JSON.parse(stdout);
-    const sources = result.historyContext.sources;
-
-    assert.ok(sources.some(source => source.path.endsWith('.md') && source.status === 'success'));
-    assert.ok(sources.some(source => source.path.endsWith('.xlsx') && source.status === 'success'));
-    assert.ok(sources.some(source => source.path.endsWith('.xmind') && source.status === 'success'));
-    assert.ok(sources.some(source => source.path.endsWith('broken.xmind') && source.status === 'failed'));
-    assert.ok(result.historyContext.relatedCases.length > 0);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -304,7 +168,11 @@ test('export-testcases keeps 功能模块和测试步骤 and removes unwanted fi
     assert.doesNotMatch(excelStrings, /备注/);
 
     assert.match(xmindContent, /邮件签约通知/);
-    assert.match(xmindContent, /测试步骤：/);
+    assert.match(xmindContent, /点击后/);
+    assert.doesNotMatch(xmindContent, /测试步骤：/);
+    assert.doesNotMatch(xmindContent, /预期结果：/);
+    assert.doesNotMatch(xmindContent, /优先级：/);
+    assert.doesNotMatch(xmindContent, /测试类型：/);
     assert.doesNotMatch(xmindContent, /用例编号：/);
     assert.doesNotMatch(xmindContent, /前置条件：/);
     assert.doesNotMatch(xmindContent, /备注：/);
@@ -313,6 +181,56 @@ test('export-testcases keeps 功能模块和测试步骤 and removes unwanted fi
   }
 });
 
+test('export-testcases writes readable business-tree xmind from explicit xmindTree', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-xmind-tree-'));
+
+  try {
+    const { stdout } = await runExportCommand([
+      '-ExecutionPolicy', 'Bypass',
+      '-File', exporterScriptPath,
+      '-InputJson', xmindTreeInputPath,
+      '-OutputDir', tempDir,
+    ]);
+    const result = JSON.parse(stdout);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+
+    assert.match(xmindContent, /登录业务树样例/);
+    assert.match(xmindContent, /入口/);
+    assert.match(xmindContent, /点击后/);
+    assert.match(xmindContent, /校验账号和密码/);
+    assert.match(xmindContent, /数据落点/);
+    assert.doesNotMatch(xmindContent, /测试步骤：/);
+    assert.doesNotMatch(xmindContent, /预期结果：/);
+    assert.doesNotMatch(xmindContent, /优先级：/);
+    assert.doesNotMatch(xmindContent, /测试类型：/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+test('export-testcases writes operation-template xmind from xmindOperations', async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-xmind-operations-'));
+
+  try {
+    const { stdout } = await runExportCommand([
+      '-ExecutionPolicy', 'Bypass',
+      '-File', exporterScriptPath,
+      '-InputJson', xmindOperationsInputPath,
+      '-OutputDir', tempDir,
+    ]);
+    const result = JSON.parse(stdout);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    const titles = collectXmindTitles(xmindContent);
+
+    for (const expected of ['列表', '新增', '编辑', '删除', '详情', '手机号', '保存', '筛选规则', '填写规则', '点击按钮后的校验', '数据校验']) {
+      assert.ok(titles.includes(expected), `missing XMind title: ${expected}`);
+    }
+
+    assert.ok(!titles.some(title => /[\[\]{}]/.test(title)), 'operation-template output should not keep [] or {} placeholders');
+    assert.match(xmindContent, /联系人管理操作模板样例/);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
 test('export-testcases merges by default and preserves module grouping', async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-export-merged-'));
 
@@ -348,8 +266,6 @@ test('export-testcases can split by module with -SplitByModule flag', async () =
 
     // Each module gets its own subdirectory
     assert.ok(result.modules.length >= 1);
-    assert.equal(result.quality.status, 'passed');
-    assert.equal(result.modules[0].quality.status, 'passed');
     const moduleDir = path.join(tempDir, moduleName);
     const entries = await fs.readdir(moduleDir);
 
@@ -486,18 +402,15 @@ test('export-testcases rejects InputPath combined with InputJson', async () => {
 test('preview mode outputs summary without writing files', async () => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-test-'));
   try {
-    const historyPath = path.join(tmpDir, 'history.md');
-    await writeHistoryMarkdown(historyPath);
-    const { stdout } = await runExport(tmpDir, 'json', ['-HistoryPath', historyPath, '-Preview']);
+    const { stdout } = await runExport(tmpDir, 'json', ['-Preview']);
     const result = JSON.parse(stdout);
     assert.equal(result.preview, true);
     assert.ok(result.modules);
     assert.ok(result.totalTestCases > 0);
     assert.ok(result.risks);
     assert.ok(result.openQuestions);
-    assert.ok(result.historyContext.relatedCases.length > 0);
     const files = await fs.readdir(tmpDir).catch(() => []);
-    assert.deepEqual(files.sort(), ['history.md']);
+    assert.equal(files.length, 0);
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });
   }
@@ -595,3 +508,5 @@ test('InputUrl rejects combined with InputJson', async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });
+
+

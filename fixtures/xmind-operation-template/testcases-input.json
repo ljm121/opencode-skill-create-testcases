@@ -1,0 +1,84 @@
+{
+  "prefix": "OPS",
+  "documentSummary": {
+    "name": "联系人管理操作模板样例",
+    "type": "operation-template-fixture",
+    "parseResult": "覆盖列表、新增、编辑、删除、详情",
+    "missingInfo": ""
+  },
+  "requirementSummary": ["联系人管理支持列表查看、新增、编辑、删除和详情查看"],
+  "testScope": ["联系人管理"],
+  "risks": [],
+  "openQuestions": [],
+  "testCases": [
+    {
+      "module": "联系人管理",
+      "scenario": "新增",
+      "title": "新增联系人时填写手机号并保存",
+      "steps": ["进入联系人列表", "点击新增", "填写手机号", "点击保存"],
+      "expectedResult": "保存成功后列表展示新联系人",
+      "priority": "P1",
+      "testType": "功能"
+    }
+  ],
+  "xmindOperations": [
+    {
+      "operation": "列表",
+      "permissions": ["功能权限", "数据权限"],
+      "dataRange": ["仅展示当前客户下联系人"],
+      "fields": [
+        { "name": "手机号", "testPoints": ["取值规则", "显示规则"] },
+        { "name": "联系人姓名", "testPoints": ["取值规则", "为空时显示-"] }
+      ],
+      "filters": [
+        { "name": "手机号", "testPoints": ["筛选规则", "支持精确查询"] }
+      ],
+      "sort": ["创建时间倒序"],
+      "pagination": ["按公共规范"],
+      "buttons": [
+        { "name": "编辑", "testPoints": ["按钮显示条件", "点击按钮后的结果"] }
+      ]
+    },
+    {
+      "operation": "新增",
+      "preconditions": ["当前用户有新增权限"],
+      "entry": ["列表页点击新增"],
+      "fields": [
+        { "name": "手机号", "testPoints": ["填写规则", { "title": "格式校验", "children": ["错误时提示手机号格式不正确"] }] },
+        { "name": "邮箱", "testPoints": ["非必填", "格式错误时提示邮箱格式不正确"] }
+      ],
+      "buttons": [
+        { "name": "保存", "testPoints": [{ "title": "点击按钮时的校验", "children": ["必填校验", "格式校验"] }, { "title": "点击按钮后的校验", "children": ["数据校验", "状态校验"] }] }
+      ]
+    },
+    {
+      "operation": "编辑",
+      "preconditions": ["联系人状态为正常"],
+      "entry": ["列表页点击编辑"],
+      "fields": [
+        { "name": "手机号", "testPoints": ["是否可修改", "填写规则", "突出和新增时候的不同测试点"] }
+      ],
+      "buttons": [
+        { "name": "保存", "testPoints": [{ "title": "点击按钮后的校验", "children": ["数据校验", "状态校验"] }] }
+      ]
+    },
+    {
+      "operation": "删除",
+      "preconditions": ["联系人未被业务单据引用"],
+      "entry": ["列表页点击删除"],
+      "testPoints": [
+        "是否有二次确认弹窗",
+        "二次确认弹窗的内容",
+        { "title": "确认删除的校验", "children": ["数据校验", "状态校验"] }
+      ]
+    },
+    {
+      "operation": "详情",
+      "preconditions": ["联系人存在"],
+      "entry": ["列表页点击详情"],
+      "fields": [
+        { "name": "手机号", "testPoints": ["规则", "显示脱敏手机号"] }
+      ]
+    }
+  ]
+}
