@@ -164,6 +164,27 @@ description: Use when users provide uploaded files, local document paths, shared
    - 支持 `--group <名称>`：精准指定仅抓取目标业务分组（例如 `--group "系统小优化"`）。
    - 支持 `--exclude-group <名称>`：自动过滤草稿脏数据（例如 `--exclude-group "草稿"`）。
 
+## IMA 知识库双向归档（Push Baseline 双策略）
+
+测试用例导出并通过评审后，可通过 `scripts/ima-bridge.mjs push` 一键反哺归档到 IMA 知识库，提供两种灵活策略：
+
+1. **策略一：独立新版本文件归档（`--mode new-file`，默认推荐）**：
+   - 示例：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/V4.8.2系统小优化测试用例/V4.8.2系统小优化测试用例.xmind" --mode new-file`
+   - 效果：在知识库中保存为独立的新文件，保持历史基线完整与改动可追溯。
+2. **策略二：合并演进至原脑图（`--mode merge`）**：
+   - 示例：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/.../用例.xmind" --mode merge --target-media-id "<原xmind_id>" --version-tag "V4.8.2"`
+   - 效果：智能下载原脑图并在内存中深度合并新老分支，自动加上版本标识并回传全量最新脑图。
+
+## 跨平台容器化导出引擎（纯 Node.js 实现）
+
+除 Windows 专用的 `export-testcases.ps1` 外，新增纯 Node.js 原生跨平台导出器 `scripts/export-testcases.mjs`：
+- **零外部 npm 依赖**：内置原生 ZIP、OpenXML Excel、XMind 打包引擎。
+- **全平台支持**：支持在 Windows、macOS、Linux、Docker 容器与 CI/CD 流水线中无差别执行。
+- **调用方式**：
+  ```bash
+  node scripts/export-testcases.mjs --input-json-text '<JSON>' --output-dir 'exports/模块名'
+  ```
+
 ## 导出与命名
 
 - 默认合并导出一套 `{documentSummary.name}.md/.xlsx/.xmind`。

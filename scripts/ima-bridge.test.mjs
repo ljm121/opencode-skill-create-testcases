@@ -4,10 +4,12 @@ import zlib from 'node:zlib';
 
 import {
   findImaApiScript,
+  findCosUploadScript,
   readZipEntries,
   topicTreeToMarkdown,
   extractEntities,
   diffBaseline,
+  mergeTopicTrees,
 } from './ima-bridge.mjs';
 
 function createMockZipBuffer(filename, content, compress = true) {
@@ -162,4 +164,69 @@ test('diffBaseline classifies added, modified, and regression items', () => {
   assert.ok(result.markdown.includes('增量差异矩阵'));
   assert.ok(result.markdown.includes('合作产品'));
   assert.ok(result.markdown.includes('Added'));
+});
+
+test('findCosUploadScript locates cos-upload.cjs or candidate path', () => {
+  const scriptPath = findCosUploadScript();
+  if (scriptPath) {
+    assert.ok(scriptPath.endsWith('cos-upload.cjs'));
+  }
+});
+
+test('mergeTopicTrees merges existing branches and appends tagged new branches', () => {
+  const baseRoot = {
+    title: '系统根导图',
+    children: {
+      attached: [
+        {
+          title: '商务合同发起',
+          children: {
+            attached: [
+              { title: '关联商机' },
+              { title: '客户签约主体' },
+            ],
+          },
+        },
+      ],
+    },
+  };
+
+  const newTree = {
+    title: '本次迭代',
+    children: {
+      attached: [
+        {
+          title: '商务合同发起',
+          children: {
+            attached: [
+              { title: '合作产品 (新增)' },
+            ],
+          },
+        },
+        {
+          title: '供应商合同发起',
+          children: {
+            attached: [
+              { title: '自动带出收款信息' },
+            ],
+          },
+        },
+      ],
+    },
+  };
+
+  const merged = mergeTopicTrees(baseRoot, newTree, { versionTag: 'V4.8.2' });
+
+  assert.equal(merged.children.attached.length, 2);
+
+  // 1. Merged existing branch
+  const contractBranch = merged.children.attached.find((b) => b.title === '商务合同发起');
+  assert.ok(contractBranch);
+  assert.equal(contractBranch.children.attached.length, 3);
+  assert.equal(contractBranch.children.attached[2].title, '合作产品 (新增)');
+
+  // 2. Appended new branch with version tag
+  const supplierBranch = merged.children.attached.find((b) => b.title.includes('供应商合同发起'));
+  assert.ok(supplierBranch);
+  assert.equal(supplierBranch.title, '【V4.8.2】 供应商合同发起');
 });
