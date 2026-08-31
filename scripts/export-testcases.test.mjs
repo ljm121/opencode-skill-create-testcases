@@ -199,6 +199,8 @@ test('export-testcases writes readable business-tree xmind from explicit xmindTr
     assert.match(xmindContent, /点击后/);
     assert.match(xmindContent, /校验账号和密码/);
     assert.match(xmindContent, /数据落点/);
+    assert.match(xmindContent, /字符串叶子节点/);
+    assert.doesNotMatch(xmindContent, /未命名节点/);
     assert.doesNotMatch(xmindContent, /测试步骤：/);
     assert.doesNotMatch(xmindContent, /预期结果：/);
     assert.doesNotMatch(xmindContent, /优先级：/);

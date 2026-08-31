@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import process from 'node:process';
@@ -16,7 +17,10 @@ function parseArgs(argv) {
   const options = {
     urls: [],
     input: null,
-    outputDir: 'exports/mockplus',
+    outputDir: null,
+    group: null,
+    excludeGroup: null,
+    cleanup: false,
     headed: false,
     timeoutMs: 30000,
   };
@@ -40,6 +44,19 @@ function parseArgs(argv) {
         if (!next) throw new Error('--output-dir 需要传入输出目录');
         options.outputDir = next;
         i += 1;
+        break;
+      case '--group':
+        if (!next) throw new Error('--group 需要传入分组名称');
+        options.group = next;
+        i += 1;
+        break;
+      case '--exclude-group':
+        if (!next) throw new Error('--exclude-group 需要传入排除分组名称');
+        options.excludeGroup = next;
+        i += 1;
+        break;
+      case '--cleanup':
+        options.cleanup = true;
         break;
       case '--headed':
         options.headed = true;
@@ -205,7 +222,32 @@ function classifyFailure(error, pageSignals = []) {
   return 'structure_changed';
 }
 
-function flattenModulePages(payload) {
+function shouldIncludeGroup(parentGroup, groupFilter, excludeGroupFilter) {
+  const normalized = (parentGroup || '').trim();
+
+  if (excludeGroupFilter) {
+    if (excludeGroupFilter instanceof RegExp && excludeGroupFilter.test(normalized)) {
+      return false;
+    }
+    if (typeof excludeGroupFilter === 'string' && normalized.toLowerCase().includes(excludeGroupFilter.toLowerCase())) {
+      return false;
+    }
+  }
+
+  if (groupFilter) {
+    if (groupFilter instanceof RegExp) {
+      return groupFilter.test(normalized);
+    }
+    if (typeof groupFilter === 'string') {
+      return normalized.toLowerCase().includes(groupFilter.toLowerCase());
+    }
+    return false;
+  }
+
+  return true;
+}
+
+function flattenModulePages(payload, options = {}) {
   const modules = [];
 
   function buildChildrenRecursive(children = [], currentDepth) {
@@ -226,6 +268,9 @@ function flattenModulePages(payload) {
 
   for (const page of payload?.pages || []) {
     if (page?.isGroup && Array.isArray(page.children)) {
+      if (!shouldIncludeGroup(page.name, options.group, options.excludeGroup)) {
+        continue;
+      }
       for (const child of page.children) {
         if (!child?.dataURL || !isUsefulModuleName(child.name)) continue;
         modules.push({
@@ -244,6 +289,9 @@ function flattenModulePages(payload) {
     }
 
     if (page?.dataURL && isUsefulModuleName(page.name)) {
+      if (!shouldIncludeGroup(page.parentGroup || '', options.group, options.excludeGroup)) {
+        continue;
+      }
       modules.push({
         id: page._id,
         name: page.name,
@@ -533,7 +581,7 @@ async function fetchSingleUrlData(browser, url, options) {
     result.title = await page.title();
     const dom = await extractStructuredDom(page);
     const moduleResponse = responses.find((item) => item.fullJson?.payload?.pages);
-    const modules = flattenModulePages(moduleResponse?.fullJson?.payload);
+    const modules = flattenModulePages(moduleResponse?.fullJson?.payload, options);
 
     if (modules.length === 0) {
       throw new Error('No module payload extracted');
@@ -672,6 +720,10 @@ async function main() {
   const urls = await loadUrls(options);
   if (urls.length === 0) throw new Error('Provide at least one --url or an --input JSON file');
 
+  if (!options.outputDir) {
+    options.outputDir = await fs.mkdtemp(path.join(os.tmpdir(), 'create-testcases-mockplus-'));
+  }
+
   await ensureDir(path.resolve(options.outputDir));
   const browser = await chromium.launch({ headless: !options.headed });
 
@@ -683,6 +735,9 @@ async function main() {
     process.stdout.write(`${JSON.stringify({ outputDir: path.resolve(options.outputDir), results }, null, 2)}\n`);
   } finally {
     await browser.close();
+    if (options.cleanup) {
+      await fs.rm(path.resolve(options.outputDir), { recursive: true, force: true }).catch(() => {});
+    }
   }
 }
 
@@ -693,4 +748,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
   });
 }
 
-export { fetchSingleUrlData, makeSafeName };
+export { fetchSingleUrlData, makeSafeName, shouldIncludeGroup, flattenModulePages };

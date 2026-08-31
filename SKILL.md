@@ -1,24 +1,24 @@
-﻿---
+---
 name: create-testcases
-description: Use when users provide uploaded files, local document paths, shared URLs, pasted requirement text, or unstructured product notes and need structured QA test cases exported as Markdown, Excel, and XMind files. Use for generating systematic business-function test cases, multi-module QA plans, priority/scenario-classified cases, and XMind outputs in historical readable business-tree or operation-template style using real fields, filters, buttons, and test points.
+description: Use when users provide uploaded files, local document paths, shared URLs, pasted requirement text, unstructured product notes, or requests based on IMA knowledge base / notes, and need structured QA test cases exported as Markdown, Excel, and XMind files. Proactively supports searching and retrieving requirement documents from IMA knowledge base / notes via ima-skill to generate test cases based on existing documentation. Use for generating systematic business-function test cases, multi-module QA plans, priority/scenario-classified cases, and XMind outputs in historical readable business-tree or operation-template style using real fields, filters, buttons, and test points.
 ---
 
 # 测试用例生成
 
 ## 概述
 
-从需求文档、目录、URL、设计稿摘要或粘贴文本中提炼业务功能测试用例，并导出真实的 `Markdown`、`Excel`、`XMind` 文件。
+从需求文档、目录、URL、设计稿摘要、粘贴文本，**或通过 `ima-skill` 自动检索获取的 IMA 知识库/笔记文档**中提炼业务功能测试用例，并导出真实的 `Markdown`、`Excel`、`XMind` 文件。
 
-用户提供路径、链接或文本后，agent 要自行读取、解析、提炼、确认和导出；最终回复聚焦产物路径和处理结果，不把命令行说明当作主体内容。
+用户提供路径、链接、文本或指定业务功能后，agent 要自行读取/检索、解析、提炼、确认和导出；最终回复聚焦产物路径和处理结果，不把命令行说明当作主体内容。
 
 ## 标准流程
 
-1. 读取输入：支持本地文件、目录、URL、Mockplus 内容和粘贴文本。
-2. 分析需求：归纳功能模块、业务操作、字段/筛选项/按钮、测试范围、风险和待确认问题。
+1. 读取/检索输入：支持本地文件、目录、URL、Mockplus 内容、粘贴文本，**以及自动通过 `ima-skill` 在 IMA 知识库/笔记中检索获取已有需求文档**。
+2. 分析需求：在已有文档或输入材料基础上，归纳功能模块、业务操作、字段/筛选项/按钮、测试范围、风险和待确认问题。
 3. 展示摘要：按固定摘要模板让用户确认；用户已明确要求直接实施时，也要至少先给出可核对的分析摘要。
 4. 生成结构化 JSON：保留 Markdown/Excel 所需字段，并为 XMind 补充 `xmindOperations` 或 `xmindTree`。
 5. 调用 `scripts/export-testcases.ps1` 导出三类文件。
-6. 汇报结果：说明输入来源、输出目录、合并/拆分方式、成功项、失败项、关键风险和待确认问题。
+6. 汇报结果：说明输入来源（含知识库文档来源）、输出目录、合并/拆分方式、成功项、失败项、关键风险和待确认问题。
 
 ## 强制摘要模板
 
@@ -119,6 +119,32 @@ description: Use when users provide uploaded files, local document paths, shared
 - 当需求明确给出不符合预期时的提示或表现时，在对应最后一级测试点下继续生成子节点，例如 toast 文案、字段红字提示、按钮置灰、弹窗保持/关闭、页面不可访问、数据不变化等；没有明确提示或表现时不要硬加子节点。
 - 优先级和测试类型默认留在 Markdown/Excel 中；只有当它们本身是业务判断或筛选条件时，才作为 XMind 节点出现。
 
+## IMA 知识库联动机制（自动检索与内容获取）
+
+当生成用例时需要基于已有系统文档、用户指定了知识库/笔记，或用户输入业务功能名称时，**agent 应自动通过 `scripts/ima-bridge.mjs` 联动检索 IMA 知识库或笔记中的已有文档作为需求基线**：
+
+1. **自动检索定位**：
+   - 快速调用 `node scripts/ima-bridge.mjs search-kb <知识库名>` 定位目标知识库。
+   - 调用 `node scripts/ima-bridge.mjs search <知识库名> --query <业务关键词>` 检索库内文件和脑图。
+   - 或直接调用 `node scripts/ima-bridge.mjs fetch-baseline <知识库名> --query <业务关键词>` 一键获取解析后的业务测试基线 Markdown。
+2. **提取文档内容**：
+   - XMind 思维导图（`media_type=14`）：`ima-bridge.mjs` 内置原生轻量解压器，自动在内存中解压并递归转换为树状 Markdown。
+   - 个人笔记/文档（`media_type=11`）：自动调用 `openapi/note/v1/get_doc_content` 读取正文纯文本。
+3. **基于已有文档融合生成**：
+   - 将知识库提取出的已有功能规范、字段规则与用户本次提供的新增诉求进行结合。
+   - 在已有文档基线之上全面覆盖正向流程、字段校验、状态流转、边界条件与异常分支。
+4. **来源记录与追踪**：
+   - 在 `documentSummary.parseResult`、`requirementSummary` 以及“需求分析摘要”的“输入来源”中明确注明所参考的 IMA 知识库条目或笔记名称，确保用例可追溯。
+
+## 在线原型（Mockplus）抓取规范与沙箱自洁
+
+1. **沙箱隔离与即时清理**：
+   - 抓取脚本 `scripts/fetch-mockplus-content.mjs` 未传 `--output-dir` 时默认采用系统临时沙箱目录（`os.tmpdir()`）。
+   - 必须通过 `--cleanup` 标志或在用例生成完成后在代码层立即彻底清理抓取临时目录，严禁在 `exports/` 残留中间缓存。
+2. **目录分组与草稿过滤**：
+   - 支持 `--group <名称>`：精准指定仅抓取目标业务分组（例如 `--group "系统小优化"`）。
+   - 支持 `--exclude-group <名称>`：自动过滤草稿脏数据（例如 `--exclude-group "草稿"`）。
+
 ## 导出与命名
 
 - 默认合并导出一套 `{documentSummary.name}.md/.xlsx/.xmind`。
@@ -129,6 +155,7 @@ description: Use when users provide uploaded files, local document paths, shared
 ## 关键规则
 
 - 所有输入方式默认合并导出，除非用户明确要求按模块拆分。
+- 当用户要求为某个功能生成用例且未提供完整本地文件时，或明确要求参考已有文档时，**自动优先通过 `ima-skill` 搜索知识库和笔记，检索相关已有文档作为测试分析基础**。
 - URL 输入需要先获取网页内容并解析成结构化数据；脚本的 `-InputUrl` 只负责记录来源和桥接提示。
 - `DOCX` 使用脚本内置内存读取；`DOC` / `PDF` 使用 Office COM 只读读取。除用户明确确认外，不落盘输入副本或提取文本。
 - 用例标题必须表达具体测试意图，预期结果必须可验证，对应界面状态、提示信息、数据结果、权限结果或状态变化。
@@ -136,5 +163,6 @@ description: Use when users provide uploaded files, local document paths, shared
 
 ## 最终回复
 
-最终回复明确输入来源、输出目录、是否合并导出、成功项、失败项、关键风险和待确认问题。若产物已生成，优先给路径和结果摘要。
+最终回复明确输入来源（包括检索到的 IMA 知识库文档/笔记）、输出目录、是否合并导出、成功项、失败项、关键风险和待确认问题。若产物已生成，优先给路径和结果摘要。
+
 

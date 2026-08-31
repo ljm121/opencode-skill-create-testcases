@@ -19,7 +19,8 @@
     "test:verify": "node --test ./scripts/verify-runtime.test.mjs",
     "test:pure": "node --test ./scripts/fetch-mockplus-content.test.mjs",
     "test:summarize": "node --test ./scripts/fetch-and-summarize-design.test.mjs",
-    "test": "npm run test:builder && npm run test:inputpath && npm run test:mockplus && npm run test:exporter && npm run test:layout && npm run test:verify && npm run test:pure && npm run test:summarize"
+    "test:bridge": "node --test ./scripts/ima-bridge.test.mjs",
+    "test": "npm run test:builder && npm run test:inputpath && npm run test:mockplus && npm run test:exporter && npm run test:layout && npm run test:verify && npm run test:pure && npm run test:summarize && npm run test:bridge"
   },
   "dependencies": {
     "playwright": "^1.53.2"

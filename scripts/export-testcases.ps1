@@ -1660,6 +1660,18 @@ function ConvertTo-XmindTemplateTitle {
 function ConvertTo-XmindBusinessNode {
     param([object]$Node)
 
+    # Explicit business trees commonly use plain strings for leaf nodes. Treat
+    # those values as titles instead of attempting object-property lookup,
+    # which previously converted every string leaf to "未命名节点".
+    if ($Node -is [string] -or $Node -is [char] -or ($null -ne $Node -and $Node.GetType().IsValueType)) {
+        $leafTitle = ConvertTo-XmindReadableTitle -Value $Node
+        if ([string]::IsNullOrWhiteSpace($leafTitle)) {
+            $leafTitle = '未命名节点'
+        }
+
+        return New-XmindTreeNode -Title $leafTitle -Children @()
+    }
+
     $title = ConvertTo-XmindReadableTitle -Value (Get-ObjectPropertyValue -Object $Node -Names @('title', 'name', 'text', 'label'))
     if ([string]::IsNullOrWhiteSpace($title)) {
         $title = '未命名节点'
