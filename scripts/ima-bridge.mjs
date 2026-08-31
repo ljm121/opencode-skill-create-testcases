@@ -613,8 +613,12 @@ export async function pushBaseline(options = {}) {
 
     const headers = {};
     if (infoResp.data.url_info.headers) {
-      for (const h of infoResp.data.url_info.headers) {
-        headers[h.key] = h.value;
+      if (Array.isArray(infoResp.data.url_info.headers)) {
+        for (const h of infoResp.data.url_info.headers) {
+          headers[h.key] = h.value;
+        }
+      } else if (typeof infoResp.data.url_info.headers === 'object') {
+        Object.assign(headers, infoResp.data.url_info.headers);
       }
     }
 
