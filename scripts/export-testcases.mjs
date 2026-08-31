@@ -31,6 +31,10 @@ export function createZipArchive(files) {
   const cdHeaders = [];
   let offset = 0;
 
+  const now = new Date();
+  const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | Math.floor(now.getSeconds() / 2);
+  const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+
   for (const [filename, content] of Object.entries(files)) {
     const rawData = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8');
     const fnBuf = Buffer.from(filename, 'utf8');
@@ -42,8 +46,8 @@ export function createZipArchive(files) {
     lfh.writeUInt16LE(20, 4);
     lfh.writeUInt16LE(0x0800, 6); // UTF-8 filename flag
     lfh.writeUInt16LE(8, 8); // Deflate
-    lfh.writeUInt16LE(0, 10);
-    lfh.writeUInt16LE(0, 12);
+    lfh.writeUInt16LE(dosTime, 10);
+    lfh.writeUInt16LE(dosDate, 12);
     lfh.writeUInt32LE(crc, 14);
     lfh.writeUInt32LE(compressed.length, 18);
     lfh.writeUInt32LE(rawData.length, 22);
@@ -59,8 +63,8 @@ export function createZipArchive(files) {
     cdh.writeUInt16LE(20, 6);
     cdh.writeUInt16LE(0x0800, 8);
     cdh.writeUInt16LE(8, 10);
-    cdh.writeUInt16LE(0, 12);
-    cdh.writeUInt16LE(0, 14);
+    cdh.writeUInt16LE(dosTime, 12);
+    cdh.writeUInt16LE(dosDate, 14);
     cdh.writeUInt32LE(crc, 16);
     cdh.writeUInt32LE(compressed.length, 20);
     cdh.writeUInt32LE(rawData.length, 24);

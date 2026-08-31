@@ -172,8 +172,9 @@ description: Use when users provide uploaded files, local document paths, shared
    - 示例：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/V4.8.2系统小优化测试用例/V4.8.2系统小优化测试用例.xmind" --mode new-file`
    - 效果：在知识库中保存为独立的新文件，保持历史基线完整与改动可追溯。
 2. **策略二：合并演进至原脑图（`--mode merge`）**：
-   - 示例：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/.../用例.xmind" --mode merge --target-media-id "<原xmind_id>" --version-tag "V4.8.2"`
-   - 效果：智能下载原脑图并在内存中深度合并新老分支，自动加上版本标识并回传全量最新脑图。
+   - 示例（单模块指定目标）：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/.../用例.xmind" --mode merge --target-media-id "<原xmind_id>" --version-tag "V4.8.2"`
+   - 示例（多模块自动匹配批量合并）：`node scripts/ima-bridge.mjs push-batch "geo全功能用例" --file "exports/.../用例.xmind" --version-tag "V4.8.2"`
+   - 效果：智能拆解各大子模块，自动在知识库中检索高置信度历史基线脑图并定向合并，无需人工一个个输入 `target-media-id`。可加 `--dry-run` 预览匹配结果。
 
 ## 跨平台容器化导出引擎（纯 Node.js 实现）
 

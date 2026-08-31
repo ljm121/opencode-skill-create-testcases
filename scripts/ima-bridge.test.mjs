@@ -10,6 +10,8 @@ import {
   extractEntities,
   diffBaseline,
   mergeTopicTrees,
+  scoreItemRelevance,
+  extractModuleTopicsFromXmind,
 } from './ima-bridge.mjs';
 
 function createMockZipBuffer(filename, content, compress = true) {
@@ -229,4 +231,33 @@ test('mergeTopicTrees merges existing branches and appends tagged new branches',
   const supplierBranch = merged.children.attached.find((b) => b.title.includes('供应商合同发起'));
   assert.ok(supplierBranch);
   assert.equal(supplierBranch.title, '【V4.8.2】 供应商合同发起');
+});
+
+test('scoreItemRelevance computes matching scores accurately', () => {
+  assert.equal(scoreItemRelevance('商务合同发起', '商务合同发起-新签.xmind'), 100);
+  assert.ok(scoreItemRelevance('商务合同合同类型校验提醒', '商务合同发起-新签.xmind') >= 80);
+  assert.equal(scoreItemRelevance('简道云主体银行配置', '完全不相关的文档.xmind'), 0);
+});
+
+test('extractModuleTopicsFromXmind extracts first-level module branches', () => {
+  const content = [
+    {
+      rootTopic: {
+        title: '系统小优化',
+        children: {
+          attached: [
+            { title: '商务合同发起', children: { attached: [{ title: '合作产品' }] } },
+            { title: '供应商合同发起', children: { attached: [{ title: '自动带出收款信息' }] } },
+          ],
+        },
+      },
+    },
+  ];
+
+  const zipBuf = createMockZipBuffer('content.json', JSON.stringify(content), true);
+  const modules = extractModuleTopicsFromXmind(zipBuf);
+
+  assert.equal(modules.length, 2);
+  assert.equal(modules[0].moduleName, '商务合同发起');
+  assert.equal(modules[1].moduleName, '供应商合同发起');
 });

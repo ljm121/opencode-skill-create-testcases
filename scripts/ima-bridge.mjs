@@ -644,16 +644,17 @@ export async function pushBaseline(options = {}) {
     originalSheet.rootTopic = mergedRootTopic;
 
     const { createZipArchive } = await import('./export-testcases.mjs');
-    const mergedZip = createZipArchive({
-      'content.json': JSON.stringify(Array.isArray(originalContent) ? originalContent : [originalSheet], null, 2),
-      'metadata.json': '{}',
-      'manifest.json': JSON.stringify({
+    originalEntries['content.json'] = Buffer.from(JSON.stringify(Array.isArray(originalContent) ? originalContent : [originalSheet], null, 2), 'utf8');
+    if (!originalEntries['manifest.json']) {
+      originalEntries['manifest.json'] = Buffer.from(JSON.stringify({
         'file-entries': {
           'content.json': {},
           'metadata.json': {},
+          'manifest.json': {},
         },
-      }),
-    });
+      }), 'utf8');
+    }
+    const mergedZip = createZipArchive(originalEntries);
 
     const baseName = path.basename(file, path.extname(file));
     const mergedFileName = `${baseName}_merged.xmind`;
@@ -678,6 +679,255 @@ export async function pushBaseline(options = {}) {
   throw new Error(`不支持的归档模式: ${mode}`);
 }
 
+/**
+ * Score the relevance between a module name and a candidate knowledge item title
+ */
+export function scoreItemRelevance(moduleName = '', itemTitle = '') {
+  const normModule = moduleName.toLowerCase().replace(/[\s\-_（）()【】\[\]]/g, '');
+  const normTitle = itemTitle.toLowerCase().replace(/[\s\-_（）()【】\[\]]/g, '');
+
+  if (normTitle.includes(normModule) || normModule.includes(normTitle)) {
+    return 100;
+  }
+
+  // Extract core keywords (e.g. 商务合同, 供应商合同, 审批, 新签, 发起)
+  const keywords = ['商务合同', '供应商合同', '简道云', '审批', '新签', '合同', '发起', '签约', '银行', '合规', '付款', '财务'];
+  let matchedCount = 0;
+  for (const kw of keywords) {
+    if (normModule.includes(kw) && normTitle.includes(kw)) {
+      matchedCount += 1;
+    }
+  }
+
+  if (matchedCount >= 2) return 80;
+  if (matchedCount === 1) return 50;
+
+  return 0;
+}
+
+/**
+ * Find best matching baseline XMind in the knowledge base for a specific module
+ */
+export async function findBestMatchingBaseline(kbId, moduleName) {
+  const cleanName = moduleName.replace(/(合同类型校验提醒|带出银行信息|h5|web端|系统小优化|小优化|优化|配置|【[^】]+】|\[[^\]]+\])/gi, '').trim();
+  const searchQueries = [cleanName || moduleName, moduleName].filter(Boolean);
+
+  let bestMatch = null;
+  let highestScore = 0;
+
+  for (const q of searchQueries) {
+    const items = await searchKnowledgeItems(kbId, q);
+    for (const item of items) {
+      if (item.media_type === 14 || (item.title && item.title.endsWith('.xmind'))) {
+        const score = scoreItemRelevance(moduleName, item.title);
+        if (score > highestScore) {
+          highestScore = score;
+          bestMatch = {
+            mediaId: item.media_id,
+            title: item.title,
+            score,
+          };
+        }
+      }
+    }
+    if (highestScore >= 80) break;
+  }
+
+  return highestScore >= 50 ? bestMatch : null;
+}
+
+/**
+ * Extract first-level module topics from a merged XMind file
+ */
+export function extractModuleTopicsFromXmind(xmindBuffer) {
+  const entries = readZipEntries(xmindBuffer);
+  if (!entries['content.json']) {
+    throw new Error('XMind 文件中缺少 content.json');
+  }
+
+  const content = JSON.parse(entries['content.json'].toString('utf8'));
+  const sheet = Array.isArray(content) ? content[0] : content;
+  const rootTopic = sheet?.rootTopic;
+  if (!rootTopic) {
+    throw new Error('XMind 中未找到 rootTopic');
+  }
+
+  const attached = rootTopic.children?.attached || rootTopic.children || [];
+  if (!attached.length) {
+    return [{ moduleName: rootTopic.title || '核心模块', topic: rootTopic }];
+  }
+
+  return attached.map((child) => ({
+    moduleName: child.title,
+    topic: child,
+  }));
+}
+
+/**
+ * Batch targeted merge for large multi-subsystem iterations (Auto Match Merge)
+ */
+export async function pushBatchBaselines(options = {}) {
+  const {
+    kbName,
+    file = null,
+    dir = null,
+    versionTag = '',
+    dryRun = false,
+  } = options;
+
+  if (!kbName) throw new Error('缺少 kbName 参数');
+  if (!file && !dir) throw new Error('必须提供 --file 或 --dir 参数');
+
+  const kbs = await searchKnowledgeBases(kbName);
+  if (!kbs.length) throw new Error(`未找到名称包含 "${kbName}" 的知识库`);
+  const kbId = kbs[0].knowledge_base_id;
+
+  const modulesToPush = [];
+
+  if (file && fs.existsSync(file)) {
+    const buf = fs.readFileSync(file);
+    const extracted = extractModuleTopicsFromXmind(buf);
+    const { createXmindBuffer } = await import('./export-testcases.mjs');
+
+    for (const item of extracted) {
+      const moduleTree = {
+        title: item.moduleName,
+        children: item.topic.children?.attached || item.topic.children || [],
+      };
+      const moduleXmindBuf = createXmindBuffer(moduleTree, item.moduleName);
+      modulesToPush.push({
+        moduleName: item.moduleName,
+        buffer: moduleXmindBuf,
+      });
+    }
+  } else if (dir && fs.existsSync(dir)) {
+    const files = fs.readdirSync(dir);
+    for (const f of files) {
+      const fullPath = path.join(dir, f);
+      if (fs.statSync(fullPath).isDirectory()) {
+        const subFiles = fs.readdirSync(fullPath);
+        const xmindFile = subFiles.find((sf) => sf.endsWith('.xmind'));
+        if (xmindFile) {
+          modulesToPush.push({
+            moduleName: f,
+            filePath: path.join(fullPath, xmindFile),
+          });
+        }
+      } else if (f.endsWith('.xmind')) {
+        const modName = path.basename(f, '.xmind');
+        modulesToPush.push({
+          moduleName: modName,
+          filePath: fullPath,
+        });
+      }
+    }
+  }
+
+  if (!modulesToPush.length) {
+    throw new Error('未在指定路径中找到任何待推送的业务模块用例');
+  }
+
+  const results = [];
+  for (const mod of modulesToPush) {
+    const match = await findBestMatchingBaseline(kbId, mod.moduleName);
+
+    let tempFile = null;
+    if (mod.buffer) {
+      const safeName = mod.moduleName.replace(/[^\w\u4e00-\u9fa5]/g, '_');
+      tempFile = path.join(os.tmpdir(), `${safeName}_${Date.now()}.xmind`);
+      fs.writeFileSync(tempFile, mod.buffer);
+    } else {
+      tempFile = mod.filePath;
+    }
+
+    try {
+      if (match) {
+        if (dryRun) {
+          results.push({
+            module: mod.moduleName,
+            strategy: 'merge',
+            targetMediaId: match.mediaId,
+            targetTitle: match.title,
+            score: match.score,
+            status: 'preview',
+          });
+        } else {
+          const pushRes = await pushBaseline({
+            kbName,
+            file: tempFile,
+            mode: 'merge',
+            targetMediaId: match.mediaId,
+            versionTag,
+          });
+          results.push({
+            module: mod.moduleName,
+            strategy: 'merge',
+            targetMediaId: match.mediaId,
+            targetTitle: match.title,
+            mediaId: pushRes.mediaId,
+            status: 'success',
+          });
+        }
+      } else {
+        if (dryRun) {
+          results.push({
+            module: mod.moduleName,
+            strategy: 'new-file',
+            targetMediaId: null,
+            targetTitle: '作为独立新模块脑图上传',
+            score: 0,
+            status: 'preview',
+          });
+        } else {
+          const pushRes = await pushBaseline({
+            kbName,
+            file: tempFile,
+            mode: 'new-file',
+            versionTag,
+          });
+          results.push({
+            module: mod.moduleName,
+            strategy: 'new-file',
+            targetMediaId: null,
+            targetTitle: '作为独立新模块脑图上传',
+            mediaId: pushRes.mediaId,
+            status: 'success',
+          });
+        }
+      }
+    } finally {
+      if (mod.buffer && tempFile && fs.existsSync(tempFile)) {
+        fs.unlinkSync(tempFile);
+      }
+    }
+  }
+
+  const markdownLines = [
+    `### 批量定向合并清单（Batch Push Matrix）- ${kbName}`,
+    '',
+    '| 业务子模块 | 归档策略 | 目标历史脑图 | 匹配得分 | 执行状态 |',
+    '|---|---|---|---|---|',
+  ];
+
+  for (const r of results) {
+    const strat = r.strategy === 'merge' ? '🟡 Merge' : '🟢 New-File';
+    const statusIcon = r.status === 'success' ? '✅ 成功' : (r.status === 'preview' ? '🔍 待执行' : '❌ 失败');
+    markdownLines.push(
+      `| **${r.module}** | ${strat} | ${r.targetTitle || '-'} | ${r.score ?? '-'} | ${statusIcon} |`
+    );
+  }
+
+  return {
+    success: true,
+    kbName,
+    kbId,
+    dryRun,
+    totalModules: results.length,
+    results,
+    markdown: markdownLines.join('\n'),
+  };
+}
+
 // CLI handler
 async function main() {
   const args = process.argv.slice(2);
@@ -694,6 +944,7 @@ IMA Bridge - 知识库与测试用例联动工具
   node ima-bridge.mjs fetch-baseline <知识库名> --query <关键词>
   node ima-bridge.mjs diff <知识库名> --query <关键词> [--spec-file <文件>]
   node ima-bridge.mjs push <知识库名> --file <路径> [--mode new-file|merge] [--target-media-id <id>] [--version-tag <tag>]
+  node ima-bridge.mjs push-batch <知识库名> [--file <合并脑图路径>] [--dir <拆分目录>] [--version-tag <tag>] [--dry-run]
 \n`);
     return;
   }
@@ -806,6 +1057,39 @@ IMA Bridge - 知识库与测试用例联动工具
       targetMediaId,
       versionTag,
       folderId,
+    });
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  if (command === 'push-batch') {
+    const kbName = args[1];
+    let file = null;
+    let dir = null;
+    let versionTag = '';
+    let dryRun = false;
+
+    for (let i = 2; i < args.length; i += 1) {
+      if (args[i] === '--file' && args[i + 1]) {
+        file = args[i + 1];
+        i += 1;
+      } else if (args[i] === '--dir' && args[i + 1]) {
+        dir = args[i + 1];
+        i += 1;
+      } else if (args[i] === '--version-tag' && args[i + 1]) {
+        versionTag = args[i + 1];
+        i += 1;
+      } else if (args[i] === '--dry-run') {
+        dryRun = true;
+      }
+    }
+
+    const result = await pushBatchBaselines({
+      kbName,
+      file,
+      dir,
+      versionTag,
+      dryRun,
     });
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return;
