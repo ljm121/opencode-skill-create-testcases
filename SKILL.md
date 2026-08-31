@@ -22,10 +22,14 @@ description: Use when users provide uploaded files, local document paths, shared
 
 ## 强制摘要模板
 
-```markdown
-## 需求分析摘要
+当仅基于纯新需求时输出第一部分；**当联动了 IMA 知识库已有文档作为设计基线时，必须同时输出第一部分与第二部分（增量差异矩阵 Diff）**：
 
-输入来源：<文件路径 / URL / 粘贴文本>
+```markdown
+## 需求分析与增量差异综合评审
+
+### 第一部分：需求分析摘要
+
+输入来源：<文件路径 / URL / 粘贴文本 / IMA 知识库条目>
 功能模块：
 - <模块A>（预计 X 条用例，P1: X 条）
 - <模块B>（预计 X 条用例，P1: X 条）
@@ -42,9 +46,24 @@ description: Use when users provide uploaded files, local document paths, shared
 待确认问题：
 1. <问题说明>
 
+### 第二部分：增量差异矩阵（Diff）
+
+```text
+🟢 新增对象/字段 (Added)       : X 项
+🟡 变更逻辑/校验规则 (Modified) : Y 项
+🔵 需重点回归模块 (Regression) : Z 项
+⚪ 保持原样基线 (Unchanged)    : N 项
+```
+
+| 对象/节点 | 差异分类 | 历史基线规范（As-Is） | 本次变更规范（To-Be） | 测试断言与影响 |
+|---|---|---|---|---|
+| <对象A> | 🟢 Added | <基线规范> | <新规范> | <测试关注点> |
+| <对象B> | 🟡 Modified | <基线规范> | <新规范> | <测试关注点> |
+| <对象C> | 🔵 Regression | <基线规范> | <新规范> | <测试关注点> |
+
 导出方式：合并导出 / 按模块拆分
 ---
-请确认以上分析是否可以生成测试用例文件。
+请确认以上分析与增量差异是否可以生成测试用例文件。
 ```
 
 ## JSON 输入结构

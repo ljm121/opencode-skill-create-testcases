@@ -275,6 +275,143 @@ export async function fetchBaseline(kbName, query) {
   };
 }
 
+/**
+ * Extract entities (fields, buttons, rules, concepts) from a text or markdown string
+ */
+export function extractEntities(text = '') {
+  const lines = text.split('\n');
+  const entities = new Map();
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    const bulletMatch = line.match(/^[-*#]+\s*(?:【([^】]+)】|\[([^\]]+)\]|([^\s:：(（]+))/);
+    const bracketMatch = line.match(/[【\[]([^】\]]+)[】\]]/);
+
+    let name = '';
+    if (bulletMatch) {
+      name = (bulletMatch[1] || bulletMatch[2] || bulletMatch[3] || '').trim();
+    } else if (bracketMatch) {
+      name = bracketMatch[1].trim();
+    }
+
+    if (name && name.length >= 2 && name.length <= 30 && !/^(画布|模块|说明|正文|页面|交互|字段)$/.test(name)) {
+      if (!entities.has(name)) {
+        entities.set(name, { name, lines: [] });
+      }
+      entities.get(name).lines.push(line);
+    }
+  }
+
+  return entities;
+}
+
+/**
+ * Perform incremental diff analysis between baseline (As-Is) and new specification (To-Be)
+ */
+export function diffBaseline(baselineInput, newSpecInput) {
+  const baselineText = typeof baselineInput === 'string'
+    ? baselineInput
+    : (Array.isArray(baselineInput?.items)
+        ? baselineInput.items.map((i) => `${i.title}\n${i.content}`).join('\n\n')
+        : JSON.stringify(baselineInput));
+
+  const newSpecText = typeof newSpecInput === 'string'
+    ? newSpecInput
+    : JSON.stringify(newSpecInput);
+
+  const baselineEntities = extractEntities(baselineText);
+  const newEntities = extractEntities(newSpecText);
+
+  const added = [];
+  const modified = [];
+  const regression = [];
+  const unchanged = [];
+
+  for (const [name, newEntity] of newEntities.entries()) {
+    if (!baselineEntities.has(name)) {
+      added.push({
+        name,
+        type: 'Added',
+        asIs: '基线中未定义该对象/字段',
+        toBe: newEntity.lines.slice(0, 3).join('; '),
+        description: `新增项：${name}`,
+      });
+    } else {
+      const baseLines = baselineEntities.get(name).lines.join(' ');
+      const newLines = newEntity.lines.join(' ');
+
+      const hasRuleChange = /(新增|变更|校验|置灰|拦截|toast|必填|警示|去重|弱校验|强校验|联动|自动带出)/.test(newLines);
+      if (hasRuleChange && newLines !== baseLines) {
+        modified.push({
+          name,
+          type: 'Modified',
+          asIs: baseLines.slice(0, 100) || '已有基础逻辑',
+          toBe: newLines.slice(0, 100),
+          description: `逻辑变更：${name}`,
+        });
+      } else {
+        unchanged.push(name);
+      }
+    }
+  }
+
+  for (const [name, baseEntity] of baselineEntities.entries()) {
+    if (newEntities.has(name)) continue;
+    const baseTextSnippet = baseEntity.lines.join(' ');
+    const isImpacted = added.some((a) => baseTextSnippet.includes(a.name)) ||
+                       modified.some((m) => baseTextSnippet.includes(m.name));
+    if (isImpacted) {
+      regression.push({
+        name,
+        type: 'Regression',
+        asIs: baseTextSnippet.slice(0, 100),
+        toBe: '保持既有流转不被新逻辑破坏',
+        description: `潜在受波及既有存量：${name}`,
+      });
+    }
+  }
+
+  const markdownLines = [
+    '### 增量差异矩阵（Diff Matrix）',
+    '',
+    '```text',
+    `🟢 新增对象/字段 (Added)       : ${added.length} 项`,
+    `🟡 变更逻辑/校验规则 (Modified) : ${modified.length} 项`,
+    `🔵 需重点回归模块 (Regression) : ${regression.length} 项`,
+    `⚪ 保持原样基线 (Unchanged)    : ${unchanged.length} 项`,
+    '```',
+    '',
+    '| 对象/节点 | 差异分类 | 历史基线规范（As-Is） | 本次变更规范（To-Be） | 测试断言与影响 |',
+    '|---|---|---|---|---|',
+  ];
+
+  for (const item of added) {
+    markdownLines.push(`| **${item.name}** | 🟢 **Added** | ${item.asIs} | ${item.toBe} | 验证新对象渲染、交互与属性限制 |`);
+  }
+  for (const item of modified) {
+    markdownLines.push(`| **${item.name}** | 🟡 **Modified** | ${item.asIs} | ${item.toBe} | 验证新老逻辑切换与分支校验 |`);
+  }
+  for (const item of regression) {
+    markdownLines.push(`| **${item.name}** | 🔵 **Regression** | ${item.asIs} | ${item.toBe} | 验证既有核心流程不受变更破坏 |`);
+  }
+
+  return {
+    summary: {
+      addedCount: added.length,
+      modifiedCount: modified.length,
+      regressionCount: regression.length,
+      unchangedCount: unchanged.length,
+    },
+    added,
+    modified,
+    regression,
+    unchanged,
+    markdown: markdownLines.join('\n'),
+  };
+}
+
 // CLI handler
 async function main() {
   const args = process.argv.slice(2);
@@ -289,6 +426,7 @@ IMA Bridge - 知识库与测试用例联动工具
   node ima-bridge.mjs search <知识库名> --query <关键词>
   node ima-bridge.mjs get-media <media_id>
   node ima-bridge.mjs fetch-baseline <知识库名> --query <关键词>
+  node ima-bridge.mjs diff <知识库名> --query <关键词> [--spec-file <文件>]
 \n`);
     return;
   }
@@ -339,6 +477,31 @@ IMA Bridge - 知识库与测试用例联动工具
     }
     const result = await fetchBaseline(kbName, query);
     process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return;
+  }
+
+  if (command === 'diff') {
+    const kbName = args[1];
+    let query = '';
+    let specFile = null;
+    for (let i = 2; i < args.length; i += 1) {
+      if (args[i] === '--query' && args[i + 1]) {
+        query = args[i + 1];
+        i += 1;
+      } else if (args[i] === '--spec-file' && args[i + 1]) {
+        specFile = args[i + 1];
+        i += 1;
+      }
+    }
+
+    const baseline = await fetchBaseline(kbName, query);
+    let newSpecText = query;
+    if (specFile) {
+      newSpecText = fs.readFileSync(specFile, 'utf8');
+    }
+
+    const diffResult = diffBaseline(baseline, newSpecText);
+    process.stdout.write(`${JSON.stringify(diffResult, null, 2)}\n`);
     return;
   }
 

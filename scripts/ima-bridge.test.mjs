@@ -6,6 +6,8 @@ import {
   findImaApiScript,
   readZipEntries,
   topicTreeToMarkdown,
+  extractEntities,
+  diffBaseline,
 } from './ima-bridge.mjs';
 
 function createMockZipBuffer(filename, content, compress = true) {
@@ -123,4 +125,41 @@ test('topicTreeToMarkdown formats nested topic tree and notes into markdown', ()
   assert.equal(lines[2], '  - 合作产品');
   assert.equal(lines[3], '    - 必填校验');
   assert.equal(lines[4], '    - 自动带出商机');
+});
+
+test('extractEntities extracts bullet and bracket names correctly', () => {
+  const sample = `
+  - 客户签约主体
+  - 【合作产品】
+  - [审批注意事项]
+  `;
+  const entities = extractEntities(sample);
+  assert.ok(entities.has('客户签约主体'));
+  assert.ok(entities.has('合作产品'));
+  assert.ok(entities.has('审批注意事项'));
+});
+
+test('diffBaseline classifies added, modified, and regression items', () => {
+  const baseline = `
+  - 关联纷享销客商机
+  - 客户签约主体
+  - 发起审批
+  `;
+
+  const newSpec = `
+  - 客户签约主体
+  - 合作产品 (新增字段，必填且置灰)
+  - 发起审批 (弱校验，不阻止提交)
+  `;
+
+  const result = diffBaseline(baseline, newSpec);
+  assert.equal(result.summary.addedCount, 1);
+  assert.equal(result.added[0].name, '合作产品');
+
+  assert.equal(result.summary.modifiedCount, 1);
+  assert.equal(result.modified[0].name, '发起审批');
+
+  assert.ok(result.markdown.includes('增量差异矩阵'));
+  assert.ok(result.markdown.includes('合作产品'));
+  assert.ok(result.markdown.includes('Added'));
 });
