@@ -480,6 +480,30 @@ export function mergeTopicTrees(baseRootTopic, newTopicOrTree, options = {}) {
 }
 
 /**
+ * Format archived file name: strictly original file name or with version number
+ */
+export function formatArchivedFileName(originalFileName, options = {}) {
+  const { versionTag = '', mode = 'new-file', targetTitle = '' } = options;
+  const ext = path.extname(originalFileName) || '.xmind';
+
+  let baseName = '';
+  if (mode === 'merge' && targetTitle) {
+    baseName = targetTitle.replace(/\.[^/.]+$/, '');
+  } else {
+    baseName = path.basename(originalFileName, ext);
+  }
+
+  if (versionTag) {
+    const cleanTag = versionTag.trim();
+    if (!baseName.includes(cleanTag)) {
+      return `${baseName}_${cleanTag}${ext}`;
+    }
+  }
+
+  return `${baseName}${ext}`;
+}
+
+/**
  * Upload a local file to IMA knowledge base using create_media -> cos-upload -> add_knowledge pipeline
  */
 export async function uploadFileToKb(kbId, filePath, options = {}) {
@@ -488,8 +512,8 @@ export async function uploadFileToKb(kbId, filePath, options = {}) {
   }
 
   const stat = fs.statSync(filePath);
-  const fileName = path.basename(filePath);
-  const ext = path.extname(filePath).toLowerCase();
+  const fileName = options.customFileName || path.basename(filePath);
+  const ext = path.extname(fileName).toLowerCase() || path.extname(filePath).toLowerCase();
 
   let contentType = 'application/octet-stream';
   let mediaType = 1;
@@ -599,7 +623,21 @@ export async function pushBaseline(options = {}) {
   const kbId = kbs[0].knowledge_base_id;
 
   if (mode === 'new-file') {
-    return uploadFileToKb(kbId, file, { folderId });
+    const archivedFileName = formatArchivedFileName(path.basename(file), { versionTag, mode: 'new-file' });
+    let uploadPath = file;
+    let tempCopied = false;
+    if (archivedFileName !== path.basename(file)) {
+      uploadPath = path.join(os.tmpdir(), archivedFileName);
+      fs.copyFileSync(file, uploadPath);
+      tempCopied = true;
+    }
+    try {
+      return await uploadFileToKb(kbId, uploadPath, { folderId, customFileName: archivedFileName });
+    } finally {
+      if (tempCopied && fs.existsSync(uploadPath)) {
+        fs.unlinkSync(uploadPath);
+      }
+    }
   }
 
   if (mode === 'merge') {
@@ -656,18 +694,23 @@ export async function pushBaseline(options = {}) {
     }
     const mergedZip = createZipArchive(originalEntries);
 
-    const baseName = path.basename(file, path.extname(file));
-    const mergedFileName = `${baseName}_merged.xmind`;
-    const tempFilePath = path.join(os.tmpdir(), mergedFileName);
+    const targetTitle = infoResp?.data?.media_title || '';
+    const archivedFileName = formatArchivedFileName(path.basename(file), {
+      versionTag,
+      mode: 'merge',
+      targetTitle,
+    });
+
+    const tempFilePath = path.join(os.tmpdir(), archivedFileName);
     fs.writeFileSync(tempFilePath, mergedZip);
 
     try {
-      const result = await uploadFileToKb(kbId, tempFilePath, { folderId });
+      const result = await uploadFileToKb(kbId, tempFilePath, { folderId, customFileName: archivedFileName });
       return {
         ...result,
         mode: 'merge',
         targetMediaId,
-        mergedFileName,
+        mergedFileName: archivedFileName,
       };
     } finally {
       if (fs.existsSync(tempFilePath)) {
@@ -830,11 +873,17 @@ export async function pushBatchBaselines(options = {}) {
   const results = [];
   for (const mod of modulesToPush) {
     const match = await findBestMatchingBaseline(kbId, mod.moduleName);
+    const targetMode = match ? 'merge' : 'new-file';
+    const targetTitle = match ? match.title : '';
+    const archivedFileName = formatArchivedFileName(`${mod.moduleName}.xmind`, {
+      versionTag,
+      mode: targetMode,
+      targetTitle,
+    });
 
     let tempFile = null;
     if (mod.buffer) {
-      const safeName = mod.moduleName.replace(/[^\w\u4e00-\u9fa5]/g, '_');
-      tempFile = path.join(os.tmpdir(), `${safeName}_${Date.now()}.xmind`);
+      tempFile = path.join(os.tmpdir(), archivedFileName);
       fs.writeFileSync(tempFile, mod.buffer);
     } else {
       tempFile = mod.filePath;

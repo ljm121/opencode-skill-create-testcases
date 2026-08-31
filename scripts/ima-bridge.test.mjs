@@ -12,6 +12,7 @@ import {
   mergeTopicTrees,
   scoreItemRelevance,
   extractModuleTopicsFromXmind,
+  formatArchivedFileName,
 } from './ima-bridge.mjs';
 
 function createMockZipBuffer(filename, content, compress = true) {
@@ -260,4 +261,22 @@ test('extractModuleTopicsFromXmind extracts first-level module branches', () => 
   assert.equal(modules.length, 2);
   assert.equal(modules[0].moduleName, '商务合同发起');
   assert.equal(modules[1].moduleName, '供应商合同发起');
+});
+
+test('formatArchivedFileName respects original name or appends version tag without generic _merged', () => {
+  // 1. Original name with versionTag already inside
+  const name1 = formatArchivedFileName('V4.8.2系统小优化测试用例.xmind', { versionTag: 'V4.8.2', mode: 'new-file' });
+  assert.equal(name1, 'V4.8.2系统小优化测试用例.xmind');
+
+  // 2. Original name without versionTag -> appends version tag
+  const name2 = formatArchivedFileName('系统小优化测试用例.xmind', { versionTag: 'V4.8.2', mode: 'new-file' });
+  assert.equal(name2, '系统小优化测试用例_V4.8.2.xmind');
+
+  // 3. Merge mode with target historical title and versionTag
+  const name3 = formatArchivedFileName('temp.xmind', { versionTag: 'V4.8.2', mode: 'merge', targetTitle: '商务合同审批详情.xmind' });
+  assert.equal(name3, '商务合同审批详情_V4.8.2.xmind');
+
+  // 4. Merge mode without versionTag -> preserves original target file name
+  const name4 = formatArchivedFileName('temp.xmind', { versionTag: '', mode: 'merge', targetTitle: '商务合同审批详情.xmind' });
+  assert.equal(name4, '商务合同审批详情.xmind');
 });

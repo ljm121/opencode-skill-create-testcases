@@ -175,6 +175,9 @@ description: Use when users provide uploaded files, local document paths, shared
    - 示例（单模块指定目标）：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/.../用例.xmind" --mode merge --target-media-id "<原xmind_id>" --version-tag "V4.8.2"`
    - 示例（多模块自动匹配批量合并）：`node scripts/ima-bridge.mjs push-batch "geo全功能用例" --file "exports/.../用例.xmind" --version-tag "V4.8.2"`
    - 效果：智能拆解各大子模块，自动在知识库中检索高置信度历史基线脑图并定向合并，无需人工一个个输入 `target-media-id`。可加 `--dry-run` 预览匹配结果。
+3. **文件归档命名规则**：
+   - 归档入库的文件名必须严格遵循**原文件名或带有版本号**（例如：原脑图名 `商务合同审批详情.xmind`，或带版本号 `商务合同审批详情_V4.8.2.xmind`、`V4.8.2系统小优化测试用例.xmind`）。
+   - 严禁在知识库中使用 `_merged.xmind` 等内部临时命名称谓，确保知识库资产整洁规范。
 
 ## 跨平台容器化导出引擎（纯 Node.js 实现）
 
