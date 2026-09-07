@@ -39,7 +39,7 @@ test('createZipArchive produces a valid zip readable by readZipEntries', () => {
 test('createXlsxBuffer produces valid OpenXML xlsx structure', () => {
   const rows = [
     ['功能模块', '场景分类', '用例标题', '测试步骤', '预期结果', '优先级', '测试类型'],
-    ['合同发起', '字段校验', '合作产品必填', '1. 进入页面；2. 查看字段', '合作产品置灰且必填', 'P1', '功能'],
+    ['用户管理', '字段校验', '手机号必填校验', '1. 进入页面；2. 查看字段', '手机号标红提示必填', 'P1', '功能'],
   ];
 
   const xlsxBuf = createXlsxBuffer(rows, 'TestCases');
@@ -51,31 +51,31 @@ test('createXlsxBuffer produces valid OpenXML xlsx structure', () => {
   assert.ok(entries['xl/worksheets/sheet1.xml']);
 
   const sharedStringsXml = entries['xl/sharedStrings.xml'].toString('utf8');
-  assert.ok(sharedStringsXml.includes('合作产品必填'));
+  assert.ok(sharedStringsXml.includes('手机号必填校验'));
 });
 
 test('createXmindBuffer produces valid XMind archive with content.json', () => {
   const rootNode = {
-    title: '系统小优化',
+    title: '系统功能总览',
     children: [
       {
-        title: '商务合同发起',
+        title: '用户中心模块',
         children: [
-          { title: '合作产品' },
+          { title: '个人信息设置' },
         ],
       },
     ],
   };
 
-  const xmindBuf = createXmindBuffer(rootNode, '系统小优化');
+  const xmindBuf = createXmindBuffer(rootNode, '系统功能总览');
   const entries = readZipEntries(xmindBuf);
 
   assert.ok(entries['content.json']);
   assert.ok(entries['manifest.json']);
 
   const contentJson = JSON.parse(entries['content.json'].toString('utf8'));
-  assert.equal(contentJson[0].rootTopic.title, '系统小优化');
-  assert.equal(contentJson[0].rootTopic.children.attached[0].title, '商务合同发起');
+  assert.equal(contentJson[0].rootTopic.title, '系统功能总览');
+  assert.equal(contentJson[0].rootTopic.children.attached[0].title, '用户中心模块');
 });
 
 test('createMarkdownString produces formatted markdown table', () => {

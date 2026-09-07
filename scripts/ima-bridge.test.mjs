@@ -103,20 +103,20 @@ test('readZipEntries throws on corrupted buffer', () => {
 
 test('topicTreeToMarkdown formats nested topic tree and notes into markdown', () => {
   const topic = {
-    title: '商务合同发起',
+    title: '用户中心模块',
     notes: {
       plain: {
-        content: '入口在商务合同管理',
+        content: '入口在顶部导航栏',
       },
     },
     children: {
       attached: [
         {
-          title: '合作产品',
+          title: '个人信息设置',
           children: {
             attached: [
-              { title: '必填校验' },
-              { title: '自动带出商机' },
+              { title: '手机号格式校验' },
+              { title: '自动带出用户名' },
             ],
           },
         },
@@ -125,47 +125,47 @@ test('topicTreeToMarkdown formats nested topic tree and notes into markdown', ()
   };
 
   const lines = topicTreeToMarkdown(topic);
-  assert.equal(lines[0], '- 商务合同发起');
-  assert.equal(lines[1], '  > 备注: 入口在商务合同管理');
-  assert.equal(lines[2], '  - 合作产品');
-  assert.equal(lines[3], '    - 必填校验');
-  assert.equal(lines[4], '    - 自动带出商机');
+  assert.equal(lines[0], '- 用户中心模块');
+  assert.equal(lines[1], '  > 备注: 入口在顶部导航栏');
+  assert.equal(lines[2], '  - 个人信息设置');
+  assert.equal(lines[3], '    - 手机号格式校验');
+  assert.equal(lines[4], '    - 自动带出用户名');
 });
 
 test('extractEntities extracts bullet and bracket names correctly', () => {
   const sample = `
-  - 客户签约主体
-  - 【合作产品】
-  - [审批注意事项]
+  - 用户账号字段
+  - 【支付金额】
+  - [权限验证规则]
   `;
   const entities = extractEntities(sample);
-  assert.ok(entities.has('客户签约主体'));
-  assert.ok(entities.has('合作产品'));
-  assert.ok(entities.has('审批注意事项'));
+  assert.ok(entities.has('用户账号字段'));
+  assert.ok(entities.has('支付金额'));
+  assert.ok(entities.has('权限验证规则'));
 });
 
 test('diffBaseline classifies added, modified, and regression items', () => {
   const baseline = `
-  - 关联纷享销客商机
-  - 客户签约主体
-  - 发起审批
+  - 用户账号认证
+  - 基础信息填写
+  - 提交审核
   `;
 
   const newSpec = `
-  - 客户签约主体
-  - 合作产品 (新增字段，必填且置灰)
-  - 发起审批 (弱校验，不阻止提交)
+  - 基础信息填写
+  - 身份双重认证 (新增字段，必填且置灰)
+  - 提交审核 (弱校验，不阻止提交)
   `;
 
   const result = diffBaseline(baseline, newSpec);
   assert.equal(result.summary.addedCount, 1);
-  assert.equal(result.added[0].name, '合作产品');
+  assert.equal(result.added[0].name, '身份双重认证');
 
   assert.equal(result.summary.modifiedCount, 1);
-  assert.equal(result.modified[0].name, '发起审批');
+  assert.equal(result.modified[0].name, '提交审核');
 
   assert.ok(result.markdown.includes('增量差异矩阵'));
-  assert.ok(result.markdown.includes('合作产品'));
+  assert.ok(result.markdown.includes('身份双重认证'));
   assert.ok(result.markdown.includes('Added'));
 });
 
@@ -182,11 +182,11 @@ test('mergeTopicTrees merges existing branches and appends tagged new branches',
     children: {
       attached: [
         {
-          title: '商务合同发起',
+          title: '用户认证模块',
           children: {
             attached: [
-              { title: '关联商机' },
-              { title: '客户签约主体' },
+              { title: '账号密码登录' },
+              { title: '手机验证码登录' },
             ],
           },
         },
@@ -199,18 +199,18 @@ test('mergeTopicTrees merges existing branches and appends tagged new branches',
     children: {
       attached: [
         {
-          title: '商务合同发起',
+          title: '用户认证模块',
           children: {
             attached: [
-              { title: '合作产品 (新增)' },
+              { title: '指纹生物识别 (新增)' },
             ],
           },
         },
         {
-          title: '供应商合同发起',
+          title: '权限管理模块',
           children: {
             attached: [
-              { title: '自动带出收款信息' },
+              { title: '多角色权限分配' },
             ],
           },
         },
@@ -218,29 +218,29 @@ test('mergeTopicTrees merges existing branches and appends tagged new branches',
     },
   };
 
-  const merged = mergeTopicTrees(baseRoot, newTree, { versionTag: 'V4.8.2' });
+  const merged = mergeTopicTrees(baseRoot, newTree, { versionTag: 'V2.0.0' });
 
   assert.equal(merged.children.attached.length, 2);
 
   // 1. Merged existing branch
-  const contractBranch = merged.children.attached.find((b) => b.title === '商务合同发起');
-  assert.ok(contractBranch);
-  assert.equal(contractBranch.children.attached.length, 3);
-  assert.equal(contractBranch.children.attached[2].title, '合作产品 (新增)');
+  const authBranch = merged.children.attached.find((b) => b.title === '用户认证模块');
+  assert.ok(authBranch);
+  assert.equal(authBranch.children.attached.length, 3);
+  assert.equal(authBranch.children.attached[2].title, '指纹生物识别 (新增)');
 
   // 2. Appended new branch with version tag
-  const supplierBranch = merged.children.attached.find((b) => b.title.includes('供应商合同发起'));
-  assert.ok(supplierBranch);
-  assert.equal(supplierBranch.title, '【V4.8.2】 供应商合同发起');
+  const permissionBranch = merged.children.attached.find((b) => b.title.includes('权限管理模块'));
+  assert.ok(permissionBranch);
+  assert.equal(permissionBranch.title, '【V2.0.0】 权限管理模块');
 });
 
 test('scoreItemRelevance computes matching scores accurately across business domains', () => {
   // 1. Exact substring match -> 100
-  assert.equal(scoreItemRelevance('商务合同发起', '商务合同发起-新签.xmind'), 100);
+  assert.equal(scoreItemRelevance('用户中心模块', '用户中心模块-基础版.xmind'), 100);
   assert.equal(scoreItemRelevance('购物车结算', '购物车结算中心.xmind'), 100);
 
   // 2. High semantic / keyword overlap -> >= 50
-  assert.ok(scoreItemRelevance('商务合同审批-Web端', '商务合同审批详情.xmind') >= 60);
+  assert.ok(scoreItemRelevance('用户中心设置-Web端', '用户中心设置详情.xmind') >= 60);
   assert.ok(scoreItemRelevance('购物车结算-优惠券抵扣', '购物车结算中心.xmind') >= 50);
   assert.ok(scoreItemRelevance('用户收货地址管理', '用户中心_地址管理.xmind') >= 50);
 
@@ -252,11 +252,11 @@ test('extractModuleTopicsFromXmind extracts first-level module branches', () => 
   const content = [
     {
       rootTopic: {
-        title: '系统小优化',
+        title: '系统功能总览',
         children: {
           attached: [
-            { title: '商务合同发起', children: { attached: [{ title: '合作产品' }] } },
-            { title: '供应商合同发起', children: { attached: [{ title: '自动带出收款信息' }] } },
+            { title: '订单管理模块', children: { attached: [{ title: '订单列表查询' }] } },
+            { title: '商品中心模块', children: { attached: [{ title: '商品上架与库存' }] } },
           ],
         },
       },
@@ -267,24 +267,24 @@ test('extractModuleTopicsFromXmind extracts first-level module branches', () => 
   const modules = extractModuleTopicsFromXmind(zipBuf);
 
   assert.equal(modules.length, 2);
-  assert.equal(modules[0].moduleName, '商务合同发起');
-  assert.equal(modules[1].moduleName, '供应商合同发起');
+  assert.equal(modules[0].moduleName, '订单管理模块');
+  assert.equal(modules[1].moduleName, '商品中心模块');
 });
 
 test('formatArchivedFileName respects original name or appends version tag without generic _merged', () => {
   // 1. Original name with versionTag already inside
-  const name1 = formatArchivedFileName('V4.8.2系统小优化测试用例.xmind', { versionTag: 'V4.8.2', mode: 'new-file' });
-  assert.equal(name1, 'V4.8.2系统小优化测试用例.xmind');
+  const name1 = formatArchivedFileName('V2.0.0用户中心功能测试用例.xmind', { versionTag: 'V2.0.0', mode: 'new-file' });
+  assert.equal(name1, 'V2.0.0用户中心功能测试用例.xmind');
 
   // 2. Original name without versionTag -> appends version tag
-  const name2 = formatArchivedFileName('系统小优化测试用例.xmind', { versionTag: 'V4.8.2', mode: 'new-file' });
-  assert.equal(name2, '系统小优化测试用例_V4.8.2.xmind');
+  const name2 = formatArchivedFileName('用户中心功能测试用例.xmind', { versionTag: 'V2.0.0', mode: 'new-file' });
+  assert.equal(name2, '用户中心功能测试用例_V2.0.0.xmind');
 
   // 3. Merge mode with target historical title and versionTag
-  const name3 = formatArchivedFileName('temp.xmind', { versionTag: 'V4.8.2', mode: 'merge', targetTitle: '商务合同审批详情.xmind' });
-  assert.equal(name3, '商务合同审批详情_V4.8.2.xmind');
+  const name3 = formatArchivedFileName('temp.xmind', { versionTag: 'V2.0.0', mode: 'merge', targetTitle: '用户中心设置详情.xmind' });
+  assert.equal(name3, '用户中心设置详情_V2.0.0.xmind');
 
   // 4. Merge mode without versionTag -> preserves original target file name
-  const name4 = formatArchivedFileName('temp.xmind', { versionTag: '', mode: 'merge', targetTitle: '商务合同审批详情.xmind' });
-  assert.equal(name4, '商务合同审批详情.xmind');
+  const name4 = formatArchivedFileName('temp.xmind', { versionTag: '', mode: 'merge', targetTitle: '用户中心设置详情.xmind' });
+  assert.equal(name4, '用户中心设置详情.xmind');
 });

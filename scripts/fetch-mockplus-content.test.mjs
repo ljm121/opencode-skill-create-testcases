@@ -34,14 +34,14 @@ test('makeSafeName lowercases result', () => {
 });
 
 test('shouldIncludeGroup matches specified group name case-insensitively', () => {
-  assert.equal(shouldIncludeGroup('系统小优化', '系统小优化', null), true);
-  assert.equal(shouldIncludeGroup('系统小优化', '优化', null), true);
-  assert.equal(shouldIncludeGroup('COR & ICP AI合规', '系统小优化', null), false);
+  assert.equal(shouldIncludeGroup('核心功能组', '核心功能组', null), true);
+  assert.equal(shouldIncludeGroup('核心功能组', '功能', null), true);
+  assert.equal(shouldIncludeGroup('其他扩展模块', '核心功能组', null), false);
 });
 
 test('shouldIncludeGroup filters out excluded groups', () => {
   assert.equal(shouldIncludeGroup('草稿（不要看）', null, '草稿'), false);
-  assert.equal(shouldIncludeGroup('系统小优化', null, '草稿'), true);
+  assert.equal(shouldIncludeGroup('核心功能组', null, '草稿'), true);
   assert.equal(shouldIncludeGroup('草稿（不要看）', '草稿', '不要看'), false);
 });
 
@@ -50,10 +50,10 @@ test('flattenModulePages filters module pages based on group options', () => {
     pages: [
       {
         isGroup: true,
-        name: '系统小优化',
+        name: '正式发布模块',
         children: [
-          { _id: '1', name: '商务合同校验', dataURL: 'https://img.mockplus.cn/p1.html' },
-          { _id: '2', name: '供应商收款带出', dataURL: 'https://img.mockplus.cn/p2.html' },
+          { _id: '1', name: '表单校验页面', dataURL: 'https://img.mockplus.cn/p1.html' },
+          { _id: '2', name: '详情展示页面', dataURL: 'https://img.mockplus.cn/p2.html' },
         ],
       },
       {
@@ -69,11 +69,11 @@ test('flattenModulePages filters module pages based on group options', () => {
   const allModules = flattenModulePages(mockPayload);
   assert.equal(allModules.length, 3);
 
-  const filtered = flattenModulePages(mockPayload, { group: '系统小优化' });
+  const filtered = flattenModulePages(mockPayload, { group: '正式发布模块' });
   assert.equal(filtered.length, 2);
-  assert.deepEqual(filtered.map((m) => m.name), ['商务合同校验', '供应商收款带出']);
+  assert.deepEqual(filtered.map((m) => m.name), ['表单校验页面', '详情展示页面']);
 
   const excluded = flattenModulePages(mockPayload, { excludeGroup: '草稿' });
   assert.equal(excluded.length, 2);
-  assert.deepEqual(excluded.map((m) => m.name), ['商务合同校验', '供应商收款带出']);
+  assert.deepEqual(excluded.map((m) => m.name), ['表单校验页面', '详情展示页面']);
 });
