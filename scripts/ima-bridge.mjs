@@ -723,36 +723,56 @@ export async function pushBaseline(options = {}) {
 }
 
 /**
- * Score the relevance between a module name and a candidate knowledge item title
+ * Generic relevance scoring between module name and candidate knowledge item title
+ * Uses Substring matching + Bigram Dice similarity coefficient (0 - 100)
  */
 export function scoreItemRelevance(moduleName = '', itemTitle = '') {
-  const normModule = moduleName.toLowerCase().replace(/[\s\-_（）()【】\[\]]/g, '');
-  const normTitle = itemTitle.toLowerCase().replace(/[\s\-_（）()【】\[\]]/g, '');
+  const normModule = moduleName.toLowerCase().replace(/[\s\-_（）()【】\[\]]/g, '').replace(/\.xmind$/i, '');
+  const normTitle = itemTitle.toLowerCase().replace(/[\s\-_（）()【】\[\]]/g, '').replace(/\.xmind$/i, '');
 
+  if (!normModule || !normTitle) return 0;
+
+  // Exact substring containment
   if (normTitle.includes(normModule) || normModule.includes(normTitle)) {
     return 100;
   }
 
-  // Extract core keywords (e.g. 商务合同, 供应商合同, 审批, 新签, 发起)
-  const keywords = ['商务合同', '供应商合同', '简道云', '审批', '新签', '合同', '发起', '签约', '银行', '合规', '付款', '财务'];
-  let matchedCount = 0;
-  for (const kw of keywords) {
-    if (normModule.includes(kw) && normTitle.includes(kw)) {
-      matchedCount += 1;
+  // Generic 2-gram character set overlap (Dice Coefficient)
+  const getBigrams = (str) => {
+    const set = new Set();
+    for (let i = 0; i < str.length - 1; i += 1) {
+      set.add(str.slice(i, i + 2));
+    }
+    return set;
+  };
+
+  const b1 = getBigrams(normModule);
+  const b2 = getBigrams(normTitle);
+  if (!b1.size || !b2.size) return 0;
+
+  let intersection = 0;
+  for (const gram of b1) {
+    if (b2.has(gram)) {
+      intersection += 1;
     }
   }
 
-  if (matchedCount >= 2) return 80;
-  if (matchedCount === 1) return 50;
+  if (intersection === 0) return 0;
 
-  return 0;
+  const dice = (2 * intersection) / (b1.size + b2.size);
+  return Math.round(dice * 100);
 }
 
 /**
  * Find best matching baseline XMind in the knowledge base for a specific module
  */
 export async function findBestMatchingBaseline(kbId, moduleName) {
-  const cleanName = moduleName.replace(/(合同类型校验提醒|带出银行信息|h5|web端|系统小优化|小优化|优化|配置|【[^】]+】|\[[^\]]+\])/gi, '').trim();
+  // Generic stripping of brackets, terminal identifiers, and action/iteration noise words
+  const cleanName = moduleName
+    .replace(/【[^】]+】|\[[^\]]+\]|\([^)]+\)|（[^）]+）/g, '')
+    .replace(/(?:端到端|系统|模块|功能|优化|改造|迭代|重构|小优化|配置|新增|需求|说明|h5|web|app|pc|ios|android)(?:端)?/gi, '')
+    .trim();
+
   const searchQueries = [cleanName || moduleName, moduleName].filter(Boolean);
 
   let bestMatch = null;

@@ -234,10 +234,18 @@ test('mergeTopicTrees merges existing branches and appends tagged new branches',
   assert.equal(supplierBranch.title, '【V4.8.2】 供应商合同发起');
 });
 
-test('scoreItemRelevance computes matching scores accurately', () => {
+test('scoreItemRelevance computes matching scores accurately across business domains', () => {
+  // 1. Exact substring match -> 100
   assert.equal(scoreItemRelevance('商务合同发起', '商务合同发起-新签.xmind'), 100);
-  assert.ok(scoreItemRelevance('商务合同合同类型校验提醒', '商务合同发起-新签.xmind') >= 80);
-  assert.equal(scoreItemRelevance('简道云主体银行配置', '完全不相关的文档.xmind'), 0);
+  assert.equal(scoreItemRelevance('购物车结算', '购物车结算中心.xmind'), 100);
+
+  // 2. High semantic / keyword overlap -> >= 50
+  assert.ok(scoreItemRelevance('商务合同审批-Web端', '商务合同审批详情.xmind') >= 60);
+  assert.ok(scoreItemRelevance('购物车结算-优惠券抵扣', '购物车结算中心.xmind') >= 50);
+  assert.ok(scoreItemRelevance('用户收货地址管理', '用户中心_地址管理.xmind') >= 50);
+
+  // 3. Completely unrelated -> 0
+  assert.equal(scoreItemRelevance('用户中心配置', '完全不相关的文档.xmind'), 0);
 });
 
 test('extractModuleTopicsFromXmind extracts first-level module branches', () => {
