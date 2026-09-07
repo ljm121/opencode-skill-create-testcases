@@ -60,6 +60,8 @@ test('current direct-export entrypoints still exist', async () => {
     'fetch-and-summarize-design.mjs',
     'verify-runtime.mjs',
     'setup-runtime.ps1',
+    'ima-bridge.mjs',
+    'export-testcases.mjs',
   ];
 
   for (const fileName of required) {

@@ -12,6 +12,9 @@ function parseArgs(argv) {
   const options = {
     url: null,
     outputDir: null,
+    group: null,
+    excludeGroup: null,
+    cleanup: false,
     timeoutMs: 30000,
     headed: false,
     maxDepth: 3,
@@ -32,6 +35,22 @@ function parseArgs(argv) {
         options.outputDir = path.resolve(next);
         i += 1;
         break;
+      case '--group':
+        if (!next) throw new Error('--group 需要传入分组名称');
+        options.group = next;
+        i += 1;
+        break;
+      case '--exclude-group':
+        if (!next) throw new Error('--exclude-group 需要传入排除分组名称');
+        options.excludeGroup = next;
+        i += 1;
+        break;
+      case '--cleanup':
+        options.cleanup = true;
+        break;
+      case '--headed':
+        options.headed = true;
+        break;
       case '--timeout-ms':
         if (!next) throw new Error('--timeout-ms 需要传入超时毫秒数');
         options.timeoutMs = Number.parseInt(next, 10);
@@ -39,9 +58,6 @@ function parseArgs(argv) {
           throw new Error('--timeout-ms 必须是正整数');
         }
         i += 1;
-        break;
-      case '--headed':
-        options.headed = true;
         break;
       case '--max-depth':
         if (!next) throw new Error('--max-depth 需要传入最大抓取深度（2-5）');
@@ -344,6 +360,9 @@ async function main() {
     process.stdout.write(output + '\n');
   } finally {
     await browser.close();
+    if (options.cleanup && options.outputDir) {
+      await fs.rm(path.resolve(options.outputDir), { recursive: true, force: true }).catch(() => {});
+    }
   }
 }
 

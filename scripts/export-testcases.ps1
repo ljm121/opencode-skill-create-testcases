@@ -15,9 +15,6 @@
     [string]$OutputDir,
 
     [Parameter(Mandatory = $false)]
-    [string]$HistoryPath,
-
-    [Parameter(Mandatory = $false)]
     [string]$Prefix,
 
     [Parameter(Mandatory = $false)]
@@ -1028,8 +1025,7 @@ function Get-ModuleDataGroups {
 
     $groupedCases = [ordered]@{}
     foreach ($testcase in @($Data.testCases)) {
-        $moduleField = Get-TestCaseField -TestCase $testcase -Name 'module'
-        $moduleName = if ([string]::IsNullOrWhiteSpace($moduleField)) { '未分类模块' } else { $moduleField }
+        $moduleName = if ([string]::IsNullOrWhiteSpace([string]$testcase.module)) { '未分类模块' } else { [string]$testcase.module }
         if (-not $groupedCases.Contains($moduleName)) {
             $groupedCases[$moduleName] = New-Object System.Collections.Generic.List[object]
         }
@@ -1041,13 +1037,15 @@ function Get-ModuleDataGroups {
     foreach ($moduleName in $groupedCases.Keys) {
         $moduleCases = @($groupedCases[$moduleName].ToArray())
         $moduleData = [pscustomobject][ordered]@{
-            prefix = if ($Data.prefix) { [string]$Data.prefix } else { $null }
+            prefix = if (Get-ObjectPropertyValue -Object $Data -Names @('prefix')) { [string](Get-ObjectPropertyValue -Object $Data -Names @('prefix')) } else { $null }
             documentSummary = $Data.documentSummary
             requirementSummary = @($Data.requirementSummary)
             openQuestions = @($Data.openQuestions)
             testScope = @($Data.testScope)
             risks = @($Data.risks)
             testCases = $moduleCases
+            xmindTree = (Get-ObjectPropertyValue -Object $Data -Names @('xmindTree', 'xmindNodes'))
+            xmindOperations = (Get-ObjectPropertyValue -Object $Data -Names @('xmindOperations', 'xmindOperation'))
             moduleName = $moduleName
         }
         $groups.Add($moduleData)
@@ -1069,617 +1067,6 @@ function New-ExportResultItem {
         path = Get-AbsolutePath -Path $Path
         status = $Status
         failureReason = $FailureReason
-    }
-}
-
-function Get-ObjectPropertyValue {
-    param(
-        [AllowNull()]$Object,
-        [string]$Name
-    )
-
-    if ($null -eq $Object) {
-        return $null
-    }
-
-    if ($Object -is [System.Collections.IDictionary]) {
-        return $Object[$Name]
-    }
-
-    $property = $Object.PSObject.Properties[$Name]
-    if ($null -eq $property) {
-        return $null
-    }
-
-    return $property.Value
-}
-
-function Get-TestCaseField {
-    param(
-        [AllowNull()]$TestCase,
-        [string]$Name
-    )
-
-    $value = Get-ObjectPropertyValue -Object $TestCase -Name $Name
-    if ($null -eq $value) {
-        return ''
-    }
-
-    return [string]$value
-}
-
-function Get-TestCaseSteps {
-    param([AllowNull()]$TestCase)
-
-    $steps = Get-ObjectPropertyValue -Object $TestCase -Name 'steps'
-    if ($null -eq $steps) {
-        return @()
-    }
-
-    return @($steps)
-}
-
-function Get-InputSourceType {
-    if (-not [string]::IsNullOrWhiteSpace($InputUrl)) {
-        return 'url'
-    }
-
-    if (-not [string]::IsNullOrWhiteSpace($InputPath)) {
-        if (Test-Path -LiteralPath $InputPath -PathType Container) {
-            return 'dir'
-        }
-
-        $extension = [System.IO.Path]::GetExtension($InputPath)
-        if (-not [string]::IsNullOrWhiteSpace($extension)) {
-            return $extension.TrimStart('.').ToLowerInvariant()
-        }
-
-        return 'file'
-    }
-
-    return 'json'
-}
-
-function Get-DefaultOutputDirectory {
-    param([string]$DocumentName)
-
-    $safeName = Get-SafeFileName -Name $DocumentName
-    $sourceType = Get-SafeFileName -Name (Get-InputSourceType)
-    $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $directoryName = "$safeName-$sourceType-${timestamp}输出"
-    return Join-Path (Get-Location) (Join-Path 'exports' $directoryName)
-}
-
-function New-QualityIssue {
-    param(
-        [ValidateSet('failed', 'warning')]
-        [string]$Severity,
-        [string]$Code,
-        [string]$Message,
-        [string]$Target
-    )
-
-    return [pscustomobject][ordered]@{
-        severity = $Severity
-        code = $Code
-        message = $Message
-        target = $Target
-    }
-}
-
-function Test-ZipEntryExists {
-    param(
-        [string]$Path,
-        [string]$EntryName
-    )
-
-    $zip = $null
-    try {
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
-        return ($null -ne $zip.GetEntry($EntryName))
-    }
-    finally {
-        if ($null -ne $zip) {
-            $zip.Dispose()
-        }
-    }
-}
-
-function Test-ExportQuality {
-    param(
-        [pscustomobject]$ModuleData,
-        [hashtable]$Files
-    )
-
-    $issues = New-Object System.Collections.Generic.List[object]
-    $fileChecks = @(
-        @{ Type = 'markdown'; Path = $Files.markdown; RequiredEntry = $null },
-        @{ Type = 'excel'; Path = $Files.excel; RequiredEntry = 'xl/workbook.xml' },
-        @{ Type = 'xmind'; Path = $Files.xmind; RequiredEntry = 'content.json' }
-    )
-
-    foreach ($check in $fileChecks) {
-        $filePath = [string]$check.Path
-        if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
-            $issues.Add((New-QualityIssue -Severity 'failed' -Code 'file_missing' -Message "$($check.Type) file was not generated." -Target $filePath))
-            continue
-        }
-
-        $item = Get-Item -LiteralPath $filePath
-        if ($item.Length -le 0) {
-            $issues.Add((New-QualityIssue -Severity 'failed' -Code 'file_empty' -Message "$($check.Type) file is empty." -Target $filePath))
-        }
-
-        if ($check.RequiredEntry) {
-            try {
-                $hasEntry = Test-ZipEntryExists -Path $filePath -EntryName ([string]$check.RequiredEntry)
-                if (-not $hasEntry) {
-                    $issues.Add((New-QualityIssue -Severity 'failed' -Code 'zip_entry_missing' -Message "$($check.Type) file is missing required entry $($check.RequiredEntry)." -Target $filePath))
-                }
-            }
-            catch {
-                $issues.Add((New-QualityIssue -Severity 'failed' -Code 'zip_invalid' -Message "$($check.Type) file cannot be opened as a zip package: $($_.Exception.Message)" -Target $filePath))
-            }
-        }
-    }
-
-    $allowedPriorities = @('P1', 'P2', 'P3')
-    $caseIndex = 0
-    foreach ($testcase in @($ModuleData.testCases)) {
-        $caseIndex++
-        $caseLabel = "case#$caseIndex"
-        $requiredTextFields = @('module', 'scenario', 'title', 'expectedResult', 'priority', 'testType')
-        foreach ($field in $requiredTextFields) {
-            $value = Get-TestCaseField -TestCase $testcase -Name $field
-            if ([string]::IsNullOrWhiteSpace([string]$value)) {
-                $issues.Add((New-QualityIssue -Severity 'warning' -Code 'field_missing' -Message "Test case $caseLabel is missing $field." -Target $field))
-            }
-        }
-
-        $steps = @(Get-TestCaseSteps -TestCase $testcase)
-        $nonEmptySteps = @($steps | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
-        if ($nonEmptySteps.Count -eq 0) {
-            $issues.Add((New-QualityIssue -Severity 'warning' -Code 'steps_empty' -Message "Test case $caseLabel has no test steps." -Target 'steps'))
-        }
-
-        $priority = Get-TestCaseField -TestCase $testcase -Name 'priority'
-        if (-not [string]::IsNullOrWhiteSpace($priority) -and $allowedPriorities -notcontains $priority) {
-            $issues.Add((New-QualityIssue -Severity 'warning' -Code 'priority_invalid' -Message "Test case $caseLabel has invalid priority '$priority'." -Target 'priority'))
-        }
-    }
-
-    $issueArray = @($issues.ToArray())
-    $status = if (@($issueArray | Where-Object { $_.severity -eq 'failed' }).Count -gt 0) {
-        'failed'
-    }
-    elseif ($issueArray.Count -gt 0) {
-        'warning'
-    }
-    else {
-        'passed'
-    }
-
-    return [pscustomobject][ordered]@{
-        status = $status
-        totalIssues = $issueArray.Count
-        issues = $issueArray
-    }
-}
-
-function Merge-QualityResults {
-    param([object[]]$QualityResults)
-
-    $issues = New-Object System.Collections.Generic.List[object]
-    foreach ($quality in @($QualityResults)) {
-        foreach ($issue in @($quality.issues)) {
-            $issues.Add($issue)
-        }
-    }
-
-    $issueArray = @($issues.ToArray())
-    $status = if (@($issueArray | Where-Object { $_.severity -eq 'failed' }).Count -gt 0) {
-        'failed'
-    }
-    elseif ($issueArray.Count -gt 0) {
-        'warning'
-    }
-    else {
-        'passed'
-    }
-
-    return [pscustomobject][ordered]@{
-        status = $status
-        totalIssues = $issueArray.Count
-        issues = $issueArray
-    }
-}
-
-function Test-HasHistoryContext {
-    param([AllowNull()]$Data)
-
-    if ($null -eq $Data) {
-        return $false
-    }
-
-    $history = Get-ObjectPropertyValue -Object $Data -Name 'historyContext'
-    if ($null -eq $history) {
-        return $false
-    }
-
-    return (@(Get-ObjectPropertyValue -Object $history -Name 'relatedCases').Count -gt 0 -or @(Get-ObjectPropertyValue -Object $history -Name 'impactedModules').Count -gt 0)
-}
-
-function Get-ZipEntryText {
-    param(
-        [string]$Path,
-        [string]$EntryName
-    )
-
-    $zip = $null
-    try {
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($Path)
-        $entry = $zip.GetEntry($EntryName)
-        if ($null -eq $entry) {
-            return $null
-        }
-
-        $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::UTF8)
-        try {
-            return $reader.ReadToEnd()
-        }
-        finally {
-            $reader.Dispose()
-        }
-    }
-    finally {
-        if ($null -ne $zip) {
-            $zip.Dispose()
-        }
-    }
-}
-
-function New-HistoryCase {
-    param(
-        [string]$Source,
-        [string]$Module,
-        [string]$Scenario,
-        [string]$Title,
-        [string[]]$Steps = @(),
-        [string]$ExpectedResult = '',
-        [string]$Priority = '',
-        [string]$TestType = ''
-    )
-
-    return [pscustomobject][ordered]@{
-        source = $Source
-        module = $Module
-        scenario = $Scenario
-        title = $Title
-        steps = @($Steps)
-        expectedResult = $ExpectedResult
-        priority = $Priority
-        testType = $TestType
-    }
-}
-
-function Get-HistoryFiles {
-    param([string]$Path)
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return @()
-    }
-
-    if (-not (Test-Path -LiteralPath $Path)) {
-        throw "HistoryPath not found: $Path"
-    }
-
-    $supported = @('.md', '.xlsx', '.xmind', '.json')
-    if (Test-Path -LiteralPath $Path -PathType Container) {
-        return @(Get-ChildItem -LiteralPath $Path -Recurse -File | Where-Object { $supported -contains $_.Extension.ToLowerInvariant() } | ForEach-Object { $_.FullName })
-    }
-
-    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
-    if ($supported -notcontains $extension) {
-        throw "Unsupported HistoryPath extension: $extension"
-    }
-
-    return @((Resolve-Path -LiteralPath $Path).Path)
-}
-
-function Convert-HistoryJsonToCases {
-    param(
-        [string]$Path,
-        $Json
-    )
-
-    $cases = New-Object System.Collections.Generic.List[object]
-    $testCases = @(Get-ObjectPropertyValue -Object $Json -Name 'testCases')
-    foreach ($testcase in $testCases) {
-        $cases.Add((New-HistoryCase `
-            -Source $Path `
-            -Module (Get-TestCaseField -TestCase $testcase -Name 'module') `
-            -Scenario (Get-TestCaseField -TestCase $testcase -Name 'scenario') `
-            -Title (Get-TestCaseField -TestCase $testcase -Name 'title') `
-            -Steps @(Get-TestCaseSteps -TestCase $testcase) `
-            -ExpectedResult (Get-TestCaseField -TestCase $testcase -Name 'expectedResult') `
-            -Priority (Get-TestCaseField -TestCase $testcase -Name 'priority') `
-            -TestType (Get-TestCaseField -TestCase $testcase -Name 'testType')))
-    }
-
-    return @($cases.ToArray())
-}
-
-function Convert-HistoryMarkdownToCases {
-    param([string]$Path)
-
-    $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
-    $cases = New-Object System.Collections.Generic.List[object]
-    foreach ($line in ($content -split "`r?`n")) {
-        $trimmed = $line.Trim()
-        if (-not $trimmed.StartsWith('|')) {
-            continue
-        }
-        if ($trimmed -match '^\|\s*-+' -or $trimmed -match '功能模块\s*\|\s*场景分类') {
-            continue
-        }
-
-        $cells = @($trimmed.Trim('|') -split '\|' | ForEach-Object { $_.Trim() })
-        if ($cells.Count -lt 7) {
-            continue
-        }
-
-        $steps = if ([string]::IsNullOrWhiteSpace($cells[3])) { @() } else { @($cells[3] -split '；' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) }
-        $cases.Add((New-HistoryCase -Source $Path -Module $cells[0] -Scenario $cells[1] -Title $cells[2] -Steps $steps -ExpectedResult $cells[4] -Priority $cells[5] -TestType $cells[6]))
-    }
-
-    return @($cases.ToArray())
-}
-
-function Convert-HistoryXlsxToCases {
-    param([string]$Path)
-
-    $sharedStringsXml = Get-ZipEntryText -Path $Path -EntryName 'xl/sharedStrings.xml'
-    $sheetXml = Get-ZipEntryText -Path $Path -EntryName 'xl/worksheets/sheet1.xml'
-    if ([string]::IsNullOrWhiteSpace($sharedStringsXml) -or [string]::IsNullOrWhiteSpace($sheetXml)) {
-        throw "XLSX missing sharedStrings.xml or sheet1.xml: $Path"
-    }
-
-    $sharedStrings = New-Object System.Collections.Generic.List[string]
-    foreach ($match in [System.Text.RegularExpressions.Regex]::Matches($sharedStringsXml, '<t[^>]*>(.*?)</t>', [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
-        $sharedStrings.Add([System.Net.WebUtility]::HtmlDecode($match.Groups[1].Value))
-    }
-
-    $cases = New-Object System.Collections.Generic.List[object]
-    foreach ($rowMatch in [System.Text.RegularExpressions.Regex]::Matches($sheetXml, '<row\b[^>]*>(.*?)</row>', [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
-        $values = New-Object System.Collections.Generic.List[string]
-        foreach ($cellMatch in [System.Text.RegularExpressions.Regex]::Matches($rowMatch.Groups[1].Value, '<c\b[^>]*>\s*<v>(\d+)</v>\s*</c>', [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
-            $index = [int]$cellMatch.Groups[1].Value
-            $values.Add($(if ($index -lt $sharedStrings.Count) { $sharedStrings[$index] } else { '' }))
-        }
-
-        if ($values.Count -lt 7 -or $values[0] -eq '功能模块') {
-            continue
-        }
-
-        $steps = if ([string]::IsNullOrWhiteSpace($values[3])) { @() } else { @($values[3] -split '；' | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }) }
-        $cases.Add((New-HistoryCase -Source $Path -Module $values[0] -Scenario $values[1] -Title $values[2] -Steps $steps -ExpectedResult $values[4] -Priority $values[5] -TestType $values[6]))
-    }
-
-    return @($cases.ToArray())
-}
-
-function Convert-HistoryXmindToCases {
-    param([string]$Path)
-
-    $contentJson = Get-ZipEntryText -Path $Path -EntryName 'content.json'
-    if ([string]::IsNullOrWhiteSpace($contentJson)) {
-        throw "XMind missing content.json: $Path"
-    }
-
-    $titles = New-Object System.Collections.Generic.List[string]
-    foreach ($match in [System.Text.RegularExpressions.Regex]::Matches($contentJson, '"title"\s*:\s*"((?:\\.|[^"])*)"', [System.Text.RegularExpressions.RegexOptions]::Singleline)) {
-        $title = [System.Text.RegularExpressions.Regex]::Unescape($match.Groups[1].Value)
-        if ($title -match '^(测试步骤|预期结果|优先级|测试类型|历史影响)：') {
-            continue
-        }
-        if (-not [string]::IsNullOrWhiteSpace($title)) {
-            $titles.Add($title)
-        }
-    }
-
-    $cases = New-Object System.Collections.Generic.List[object]
-    for ($i = 2; $i -lt $titles.Count; $i++) {
-        $cases.Add((New-HistoryCase -Source $Path -Module $titles[0] -Scenario $titles[1] -Title $titles[$i]))
-    }
-
-    return @($cases.ToArray())
-}
-
-function Convert-HistoryFileToCases {
-    param([string]$Path)
-
-    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
-    switch ($extension) {
-        '.md' { return Convert-HistoryMarkdownToCases -Path $Path }
-        '.xlsx' { return Convert-HistoryXlsxToCases -Path $Path }
-        '.xmind' { return Convert-HistoryXmindToCases -Path $Path }
-        '.json' {
-            $json = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json
-            return Convert-HistoryJsonToCases -Path $Path -Json $json
-        }
-        default { return @() }
-    }
-}
-
-function Get-MatchKeywords {
-    param([string]$Text)
-
-    if ([string]::IsNullOrWhiteSpace($Text)) {
-        return @()
-    }
-
-    $normalized = ([string]$Text).ToLowerInvariant()
-    $tokens = @($normalized -split '[^\p{L}\p{Nd}]+' | Where-Object { $_.Length -ge 2 })
-    $keywords = New-Object System.Collections.Generic.List[string]
-    foreach ($token in $tokens) {
-        if (-not $keywords.Contains($token)) {
-            $keywords.Add($token)
-        }
-    }
-    return @($keywords.ToArray())
-}
-
-function Test-HistoryCaseMatchesCurrentCase {
-    param(
-        $HistoryCase,
-        $CurrentCase
-    )
-
-    $historyModule = [string]$HistoryCase.module
-    $currentModule = Get-TestCaseField -TestCase $CurrentCase -Name 'module'
-    if (-not [string]::IsNullOrWhiteSpace($historyModule) -and -not [string]::IsNullOrWhiteSpace($currentModule) -and ($historyModule -eq $currentModule -or $historyModule.Contains($currentModule) -or $currentModule.Contains($historyModule))) {
-        return $true
-    }
-
-    $historyScenario = [string]$HistoryCase.scenario
-    $currentScenario = Get-TestCaseField -TestCase $CurrentCase -Name 'scenario'
-    if (-not [string]::IsNullOrWhiteSpace($historyScenario) -and -not [string]::IsNullOrWhiteSpace($currentScenario) -and ($historyScenario -eq $currentScenario -or $historyScenario.Contains($currentScenario) -or $currentScenario.Contains($historyScenario))) {
-        return $true
-    }
-
-    $historyText = "$($HistoryCase.module) $($HistoryCase.scenario) $($HistoryCase.title) $($HistoryCase.expectedResult)"
-    $currentText = "$(Get-TestCaseField -TestCase $CurrentCase -Name 'module') $(Get-TestCaseField -TestCase $CurrentCase -Name 'scenario') $(Get-TestCaseField -TestCase $CurrentCase -Name 'title') $(Get-TestCaseField -TestCase $CurrentCase -Name 'expectedResult')"
-    foreach ($keyword in @(Get-MatchKeywords -Text $currentText)) {
-        if ($keyword.Length -ge 3 -and $historyText.ToLowerInvariant().Contains($keyword)) {
-            return $true
-        }
-    }
-
-    return $false
-}
-
-function New-HistoryContext {
-    param(
-        [string]$Path,
-        [pscustomobject]$Data
-    )
-
-    $sources = New-Object System.Collections.Generic.List[object]
-    $historyCases = New-Object System.Collections.Generic.List[object]
-    foreach ($file in @(Get-HistoryFiles -Path $Path)) {
-        try {
-            $cases = @(Convert-HistoryFileToCases -Path $file)
-            foreach ($case in $cases) {
-                if (-not [string]::IsNullOrWhiteSpace([string]$case.title)) {
-                    $historyCases.Add($case)
-                }
-            }
-            $sources.Add([pscustomobject][ordered]@{ path = $file; status = 'success'; caseCount = $cases.Count; warning = '' })
-        }
-        catch {
-            $sources.Add([pscustomobject][ordered]@{ path = $file; status = 'failed'; caseCount = 0; warning = $_.Exception.Message })
-        }
-    }
-
-    $relatedCases = New-Object System.Collections.Generic.List[object]
-    $impacted = [ordered]@{}
-    foreach ($testcase in @($Data.testCases)) {
-        $matched = New-Object System.Collections.Generic.List[object]
-        foreach ($historyCase in @($historyCases.ToArray())) {
-            if (Test-HistoryCaseMatchesCurrentCase -HistoryCase $historyCase -CurrentCase $testcase) {
-                $matched.Add($historyCase)
-            }
-        }
-
-        if ($matched.Count -gt 0) {
-            $impact = "影响历史范围：关联 $($matched.Count) 条历史用例，建议纳入回归。"
-            $relatedTitles = @($matched.ToArray() | Select-Object -First 5 | ForEach-Object { $_.title })
-            Set-ObjectProperty -Target $testcase -Name 'historyImpact' -Value $impact
-            Set-ObjectProperty -Target $testcase -Name 'relatedHistoryCases' -Value $relatedTitles
-
-            $moduleName = Get-TestCaseField -TestCase $testcase -Name 'module'
-            if ([string]::IsNullOrWhiteSpace($moduleName)) { $moduleName = '未分类模块' }
-            if (-not $impacted.Contains($moduleName)) {
-                $impacted[$moduleName] = New-Object System.Collections.Generic.List[string]
-            }
-            foreach ($title in $relatedTitles) {
-                if (-not $impacted[$moduleName].Contains($title)) {
-                    $impacted[$moduleName].Add($title)
-                }
-            }
-
-            $relatedCases.Add([pscustomobject][ordered]@{
-                module = $moduleName
-                currentTitle = Get-TestCaseField -TestCase $testcase -Name 'title'
-                relatedHistoryCases = $relatedTitles
-                relatedCount = $matched.Count
-            })
-        }
-    }
-
-    $impactedModules = New-Object System.Collections.Generic.List[object]
-    foreach ($moduleName in $impacted.Keys) {
-        $titles = @($impacted[$moduleName].ToArray())
-        $impactedModules.Add([pscustomobject][ordered]@{
-            module = $moduleName
-            relatedCaseCount = $titles.Count
-            relatedHistoryCases = $titles
-        })
-    }
-
-    $unmatchedRequirements = New-Object System.Collections.Generic.List[string]
-    foreach ($requirement in @($Data.requirementSummary)) {
-        $matchedRequirement = $false
-        foreach ($historyCase in @($historyCases.ToArray())) {
-            foreach ($keyword in @(Get-MatchKeywords -Text ([string]$requirement))) {
-                if ($keyword.Length -ge 3 -and ("$($historyCase.module) $($historyCase.scenario) $($historyCase.title) $($historyCase.expectedResult)").ToLowerInvariant().Contains($keyword)) {
-                    $matchedRequirement = $true
-                    break
-                }
-            }
-            if ($matchedRequirement) { break }
-        }
-        if (-not $matchedRequirement) {
-            $unmatchedRequirements.Add([string]$requirement)
-        }
-    }
-
-    $regressionRisks = New-Object System.Collections.Generic.List[string]
-    foreach ($module in @($impactedModules.ToArray())) {
-        $regressionRisks.Add("$($module.module)：关联 $($module.relatedCaseCount) 条历史用例，需重点回归相邻流程。")
-    }
-    if ($unmatchedRequirements.Count -gt 0) {
-        $regressionRisks.Add("存在 $($unmatchedRequirements.Count) 条当前需求未匹配到历史用例，需补充新增覆盖。")
-    }
-
-    return [pscustomobject][ordered]@{
-        sources = @($sources.ToArray())
-        impactedModules = @($impactedModules.ToArray())
-        relatedCases = @($relatedCases.ToArray())
-        regressionRisks = @($regressionRisks.ToArray())
-        unmatchedRequirements = @($unmatchedRequirements.ToArray())
-    }
-}
-
-function Get-ScopedHistoryContext {
-    param(
-        [AllowNull()]$HistoryContext,
-        [string]$ModuleName
-    )
-
-    if ($null -eq $HistoryContext) {
-        return $null
-    }
-
-    $impactedModules = @($HistoryContext.impactedModules | Where-Object { $_.module -eq $ModuleName })
-    $relatedCases = @($HistoryContext.relatedCases | Where-Object { $_.module -eq $ModuleName })
-    $regressionRisks = @($HistoryContext.regressionRisks | Where-Object { [string]$_ -like "$ModuleName*" })
-    return [pscustomobject][ordered]@{
-        sources = @($HistoryContext.sources)
-        impactedModules = $impactedModules
-        relatedCases = $relatedCases
-        regressionRisks = $regressionRisks
-        unmatchedRequirements = @($HistoryContext.unmatchedRequirements)
     }
 }
 
@@ -1780,22 +1167,6 @@ function New-MarkdownContent {
     $lines.Add('# 测试用例导出')
     $lines.Add('')
 
-    if (Test-HasHistoryContext -Data $Data) {
-        $history = $Data.historyContext
-        $lines.Add('## 历史影响范围')
-        $lines.Add('')
-        foreach ($module in @($history.impactedModules)) {
-            $lines.Add("- $($module.module)：关联 $($module.relatedCaseCount) 条历史用例")
-        }
-        foreach ($risk in @($history.regressionRisks)) {
-            $lines.Add("- 回归风险：$risk")
-        }
-        if (@($history.impactedModules).Count -eq 0 -and @($history.regressionRisks).Count -eq 0) {
-            $lines.Add('- 未匹配到明确历史影响范围')
-        }
-        $lines.Add('')
-    }
-
     $sections = @(
         @{ Title = '待确认问题'; Items = $Data.openQuestions },
         @{ Title = '测试范围'; Items = $Data.testScope },
@@ -1818,27 +1189,12 @@ function New-MarkdownContent {
 
     $lines.Add('## 测试用例')
     $lines.Add('')
-    $hasHistory = Test-HasHistoryContext -Data $Data
-    if ($hasHistory) {
-        $lines.Add('| 功能模块 | 场景分类 | 用例标题 | 测试步骤 | 预期结果 | 优先级 | 测试类型 | 影响范围 | 关联历史用例 |')
-        $lines.Add('|---|---|---|---|---|---|---|---|---|')
-    }
-    else {
-        $lines.Add('| 功能模块 | 场景分类 | 用例标题 | 测试步骤 | 预期结果 | 优先级 | 测试类型 |')
-        $lines.Add('|---|---|---|---|---|---|---|')
-    }
+    $lines.Add('| 功能模块 | 场景分类 | 用例标题 | 测试步骤 | 预期结果 | 优先级 | 测试类型 |')
+    $lines.Add('|---|---|---|---|---|---|---|')
 
     foreach ($testcase in @($Data.testCases)) {
-        $stepsText = @(Get-TestCaseSteps -TestCase $testcase) -join '；'
-        $baseLine = "| $(Get-TestCaseField -TestCase $testcase -Name 'module') | $(Get-TestCaseField -TestCase $testcase -Name 'scenario') | $(Get-TestCaseField -TestCase $testcase -Name 'title') | $stepsText | $(Get-TestCaseField -TestCase $testcase -Name 'expectedResult') | $(Get-TestCaseField -TestCase $testcase -Name 'priority') | $(Get-TestCaseField -TestCase $testcase -Name 'testType')"
-        if ($hasHistory) {
-            $historyImpact = Get-TestCaseField -TestCase $testcase -Name 'historyImpact'
-            $relatedHistoryCases = @((Get-ObjectPropertyValue -Object $testcase -Name 'relatedHistoryCases')) -join '；'
-            $line = "$baseLine | $historyImpact | $relatedHistoryCases |"
-        }
-        else {
-            $line = "$baseLine |"
-        }
+        $stepsText = @($testcase.steps) -join '；'
+        $line = "| $($testcase.module) | $($testcase.scenario) | $($testcase.title) | $stepsText | $($testcase.expectedResult) | $($testcase.priority) | $($testcase.testType) |"
         $lines.Add($line)
     }
 
@@ -1851,31 +1207,20 @@ function New-XlsxFile {
         [string]$OutputPath
     )
 
-    $hasHistory = Test-HasHistoryContext -Data $Data
-    $headers = if ($hasHistory) {
-        @('功能模块', '场景分类', '用例标题', '测试步骤', '预期结果', '优先级', '测试类型', '影响范围', '关联历史用例')
-    }
-    else {
-        @('功能模块', '场景分类', '用例标题', '测试步骤', '预期结果', '优先级', '测试类型')
-    }
+    $headers = @('功能模块', '场景分类', '用例标题', '测试步骤', '预期结果', '优先级', '测试类型')
     $rows = New-Object System.Collections.Generic.List[object[]]
     $rows.Add($headers)
 
     foreach ($testcase in @($Data.testCases)) {
-        $row = @(
-            (Get-TestCaseField -TestCase $testcase -Name 'module'),
-            (Get-TestCaseField -TestCase $testcase -Name 'scenario'),
-            (Get-TestCaseField -TestCase $testcase -Name 'title'),
-            [string](@(Get-TestCaseSteps -TestCase $testcase) -join '；'),
-            (Get-TestCaseField -TestCase $testcase -Name 'expectedResult'),
-            (Get-TestCaseField -TestCase $testcase -Name 'priority'),
-            (Get-TestCaseField -TestCase $testcase -Name 'testType')
-        )
-        if ($hasHistory) {
-            $row += (Get-TestCaseField -TestCase $testcase -Name 'historyImpact')
-            $row += (@((Get-ObjectPropertyValue -Object $testcase -Name 'relatedHistoryCases')) -join '；')
-        }
-        $rows.Add($row)
+        $rows.Add(@(
+            [string]$testcase.module,
+            [string]$testcase.scenario,
+            [string]$testcase.title,
+            [string](@($testcase.steps) -join '；'),
+            [string]$testcase.expectedResult,
+            [string]$testcase.priority,
+            [string]$testcase.testType
+        ))
     }
 
     $stringIndexMap = @{}
@@ -2103,7 +1448,10 @@ function Set-ZipEntryText {
         [string]$Content
     )
 
-    $existing = $Zip.GetEntry($EntryName)
+    $existing = $null
+    if ($Zip.Mode -ne [System.IO.Compression.ZipArchiveMode]::Create) {
+        $existing = $Zip.GetEntry($EntryName)
+    }
     if ($null -ne $existing) {
         $existing.Delete()
     }
@@ -2208,6 +1556,406 @@ function New-XmindFromTemplate {
         $zip.Dispose()
     }
 }
+function New-XmindJsonFile {
+    param(
+        [hashtable]$RootTopic,
+        [string]$WorkbookTitle,
+        [string]$OutputPath
+    )
+
+    $zip = [System.IO.Compression.ZipFile]::Open($OutputPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        $rootJsonTopic = ConvertTo-XmindJsonTopic -Node $RootTopic -IsRoot $true
+        $sheet = [ordered]@{
+            id = [guid]::NewGuid().ToString('N')
+            class = 'sheet'
+            title = 'Sheet 1'
+            rootTopic = $rootJsonTopic
+            topicOverlapping = 'overlap'
+            revisionId = [guid]::NewGuid().ToString()
+            arrangeableLayerOrder = @($rootJsonTopic.id)
+            zones = @()
+            extensions = @(
+                [ordered]@{
+                    provider = 'org.xmind.ui.skeleton.structure.style'
+                    content = [ordered]@{
+                        centralTopic = 'org.xmind.ui.logic.right'
+                    }
+                }
+            )
+        }
+
+        $contentJson = '[' + ($sheet | ConvertTo-Json -Depth 100 -Compress) + ']'
+        Set-ZipEntryText -Zip $zip -EntryName 'content.json' -Content $contentJson
+
+        $metadata = [ordered]@{
+            dataStructureVersion = '3'
+            layoutEngineVersion = '5'
+            creator = [ordered]@{
+                name = 'OpenCode'
+                version = '1.0'
+            }
+        } | ConvertTo-Json -Depth 20 -Compress
+        Set-ZipEntryText -Zip $zip -EntryName 'metadata.json' -Content $metadata
+
+        $manifest = [ordered]@{
+            'file-entries' = [ordered]@{
+                'content.json' = @{}
+                'metadata.json' = @{}
+            }
+        } | ConvertTo-Json -Depth 20 -Compress
+        Set-ZipEntryText -Zip $zip -EntryName 'manifest.json' -Content $manifest
+    }
+    finally {
+        $zip.Dispose()
+    }
+}
+
+function Get-ObjectPropertyValue {
+    param(
+        [object]$Object,
+        [string[]]$Names
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+
+    foreach ($name in $Names) {
+        if ($Object -is [System.Collections.IDictionary] -and $Object.Contains($name)) {
+            return $Object[$name]
+        }
+
+        if ($Object.PSObject.Properties.Name -contains $name) {
+            return $Object.$name
+        }
+    }
+
+    return $null
+}
+
+function ConvertTo-XmindReadableTitle {
+    param([AllowNull()][object]$Value)
+
+    if ($null -eq $Value) {
+        return ''
+    }
+
+    return (ConvertTo-NormalizedWhitespace -Text ([string]$Value))
+}
+
+function ConvertTo-XmindTemplateTitle {
+    param([AllowNull()][object]$Value)
+
+    $text = ConvertTo-XmindReadableTitle -Value $Value
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return ''
+    }
+
+    $text = $text -replace '^\s*[\[\{](.*)[\]\}]\s*$', '$1'
+    $text = $text.Replace('[', '').Replace(']', '').Replace('{', '').Replace('}', '')
+    return (ConvertTo-NormalizedWhitespace -Text $text)
+}
+
+function ConvertTo-XmindBusinessNode {
+    param([object]$Node)
+
+    # Explicit business trees commonly use plain strings for leaf nodes. Treat
+    # those values as titles instead of attempting object-property lookup,
+    # which previously converted every string leaf to "未命名节点".
+    if ($Node -is [string] -or $Node -is [char] -or ($null -ne $Node -and $Node.GetType().IsValueType)) {
+        $leafTitle = ConvertTo-XmindReadableTitle -Value $Node
+        if ([string]::IsNullOrWhiteSpace($leafTitle)) {
+            $leafTitle = '未命名节点'
+        }
+
+        return New-XmindTreeNode -Title $leafTitle -Children @()
+    }
+
+    $title = ConvertTo-XmindReadableTitle -Value (Get-ObjectPropertyValue -Object $Node -Names @('title', 'name', 'text', 'label'))
+    if ([string]::IsNullOrWhiteSpace($title)) {
+        $title = '未命名节点'
+    }
+
+    $rawChildren = Get-ObjectPropertyValue -Object $Node -Names @('children', 'nodes', 'items')
+    $children = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($child in @($rawChildren)) {
+        if ($null -ne $child) {
+            $children.Add((ConvertTo-XmindBusinessNode -Node $child))
+        }
+    }
+
+    return New-XmindTreeNode -Title $title -Children @($children.ToArray())
+}
+
+function Add-XmindLeafIfPresent {
+    param(
+        [System.Collections.Generic.List[hashtable]]$Children,
+        [string]$Title,
+        [AllowNull()][object]$Value
+    )
+
+    $text = ConvertTo-XmindReadableTitle -Value $Value
+    if (-not [string]::IsNullOrWhiteSpace($text)) {
+        $Children.Add((New-XmindTreeNode -Title $Title -Children @(
+            (New-XmindTreeNode -Title $text -Children @())
+        )))
+    }
+}
+
+function New-XmindStepNode {
+    param(
+        [object]$Step,
+        [int]$Index
+    )
+
+    if ($Step -is [System.Collections.IDictionary] -or ($null -ne $Step -and @($Step.PSObject.Properties).Count -gt 0 -and -not ($Step -is [string]))) {
+        $explicitNode = ConvertTo-XmindBusinessNode -Node $Step
+        if (-not [string]::IsNullOrWhiteSpace([string]$explicitNode.title)) {
+            return $explicitNode
+        }
+    }
+
+    $text = ConvertTo-XmindReadableTitle -Value $Step
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        $text = "操作$Index"
+    }
+
+    return New-XmindTreeNode -Title $text -Children @()
+}
+
+function New-XmindBusinessCaseNode {
+    param([object]$Testcase)
+
+    $title = ConvertTo-XmindReadableTitle -Value (Get-ObjectPropertyValue -Object $Testcase -Names @('title', 'name'))
+    if ([string]::IsNullOrWhiteSpace($title)) {
+        $title = '未命名用例'
+    }
+
+    $children = New-Object System.Collections.Generic.List[hashtable]
+
+    $preconditions = Get-ObjectPropertyValue -Object $Testcase -Names @('preconditions', 'precondition', '前置条件')
+    foreach ($precondition in @($preconditions)) {
+        $text = ConvertTo-XmindReadableTitle -Value $precondition
+        if (-not [string]::IsNullOrWhiteSpace($text)) {
+            $children.Add((New-XmindTreeNode -Title '前提' -Children @(
+                (New-XmindTreeNode -Title $text -Children @())
+            )))
+        }
+    }
+
+    $steps = @((Get-ObjectPropertyValue -Object $Testcase -Names @('steps', 'actions', '操作步骤')))
+    $expectedResult = ConvertTo-XmindReadableTitle -Value (Get-ObjectPropertyValue -Object $Testcase -Names @('expectedResult', 'expected', '预期结果'))
+    if ($steps.Count -gt 0 -and -not ([string]::IsNullOrWhiteSpace([string]$steps[0]) -and $steps.Count -eq 1)) {
+        $actionChildren = New-Object System.Collections.Generic.List[hashtable]
+        $index = 1
+        foreach ($step in $steps) {
+            $actionChildren.Add((New-XmindStepNode -Step $step -Index $index))
+            $index++
+        }
+
+        if (-not [string]::IsNullOrWhiteSpace($expectedResult)) {
+            $lastIndex = $actionChildren.Count - 1
+            if ($lastIndex -ge 0) {
+                $lastNode = $actionChildren[$lastIndex]
+                $lastChildren = New-Object System.Collections.Generic.List[hashtable]
+                foreach ($child in @($lastNode.children)) { $lastChildren.Add($child) }
+                $lastChildren.Add((New-XmindTreeNode -Title $expectedResult -Children @()))
+                $lastNode.children = @($lastChildren.ToArray())
+            }
+        }
+
+        $children.Add((New-XmindTreeNode -Title '点击后' -Children @($actionChildren.ToArray())))
+    }
+    elseif (-not [string]::IsNullOrWhiteSpace($expectedResult)) {
+        $children.Add((New-XmindTreeNode -Title '点击后' -Children @(
+            (New-XmindTreeNode -Title $expectedResult -Children @())
+        )))
+    }
+
+    Add-XmindLeafIfPresent -Children $children -Title '校验' -Value (Get-ObjectPropertyValue -Object $Testcase -Names @('validation', '校验'))
+    Add-XmindLeafIfPresent -Children $children -Title '提示文案' -Value (Get-ObjectPropertyValue -Object $Testcase -Names @('message', 'toast', '提示文案'))
+    Add-XmindLeafIfPresent -Children $children -Title '数据落点' -Value (Get-ObjectPropertyValue -Object $Testcase -Names @('dataImpact', 'dataResult', '数据落点'))
+
+    return New-XmindTreeNode -Title $title -Children @($children.ToArray())
+}
+
+function ConvertTo-XmindTemplatePointNode {
+    param([object]$Point)
+
+    if ($Point -is [string]) {
+        $title = ConvertTo-XmindTemplateTitle -Value $Point
+        return New-XmindTreeNode -Title $title -Children @()
+    }
+
+    $title = ConvertTo-XmindTemplateTitle -Value (Get-ObjectPropertyValue -Object $Point -Names @('title', 'name', 'text', 'label', 'point', 'testPoint'))
+    if ([string]::IsNullOrWhiteSpace($title)) {
+        $title = '测试点'
+    }
+
+    $rawChildren = Get-ObjectPropertyValue -Object $Point -Names @('children', 'nodes', 'items', 'testPoints')
+    $children = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($child in @($rawChildren)) {
+        if ($null -ne $child) {
+            $children.Add((ConvertTo-XmindTemplatePointNode -Point $child))
+        }
+    }
+
+    return New-XmindTreeNode -Title $title -Children @($children.ToArray())
+}
+
+function ConvertTo-XmindTemplatePointNodes {
+    param([AllowNull()][object]$Value)
+
+    $nodes = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($item in @($Value)) {
+        if ($null -ne $item) {
+            $node = ConvertTo-XmindTemplatePointNode -Point $item
+            if (-not [string]::IsNullOrWhiteSpace([string]$node.title)) {
+                $nodes.Add($node)
+            }
+        }
+    }
+
+    return @($nodes.ToArray())
+}
+
+function Add-XmindOperationSection {
+    param(
+        [System.Collections.Generic.List[hashtable]]$Children,
+        [string]$Title,
+        [AllowNull()][object]$Value
+    )
+
+    $nodes = @(ConvertTo-XmindTemplatePointNodes -Value $Value)
+    if ($nodes.Count -gt 0) {
+        $Children.Add((New-XmindTreeNode -Title $Title -Children @($nodes)))
+    }
+}
+
+function ConvertTo-XmindNamedTemplateNode {
+    param(
+        [object]$Item,
+        [string]$DefaultTitle
+    )
+
+    if ($Item -is [string]) {
+        return New-XmindTreeNode -Title (ConvertTo-XmindTemplateTitle -Value $Item) -Children @()
+    }
+
+    $title = ConvertTo-XmindTemplateTitle -Value (Get-ObjectPropertyValue -Object $Item -Names @('name', 'title', 'text', 'label'))
+    if ([string]::IsNullOrWhiteSpace($title)) {
+        $title = $DefaultTitle
+    }
+
+    $children = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($pointName in @('testPoints', 'points', 'rules', 'validations', 'children', 'nodes', 'items')) {
+        $points = Get-ObjectPropertyValue -Object $Item -Names @($pointName)
+        foreach ($node in @(ConvertTo-XmindTemplatePointNodes -Value $points)) {
+            $children.Add($node)
+        }
+    }
+
+    return New-XmindTreeNode -Title $title -Children @($children.ToArray())
+}
+
+function Add-XmindNamedOperationSection {
+    param(
+        [System.Collections.Generic.List[hashtable]]$Children,
+        [string]$Title,
+        [AllowNull()][object]$Items,
+        [string]$DefaultTitle
+    )
+
+    $nodes = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($item in @($Items)) {
+        if ($null -ne $item) {
+            $nodes.Add((ConvertTo-XmindNamedTemplateNode -Item $item -DefaultTitle $DefaultTitle))
+        }
+    }
+
+    if ($nodes.Count -gt 0) {
+        $Children.Add((New-XmindTreeNode -Title $Title -Children @($nodes.ToArray())))
+    }
+}
+
+function Get-XmindFieldSectionTitle {
+    param([string]$OperationName)
+
+    if ($OperationName -match '编辑') { return '编辑页面的字段' }
+    if ($OperationName -match '详情|查看') { return '详情页面的字段' }
+    if ($OperationName -match '新增|创建|添加') { return '新增页面的字段' }
+    return '字段内容'
+}
+
+function Get-XmindButtonSectionTitle {
+    param([string]$OperationName)
+
+    if ($OperationName -match '列表|查询') { return '操作列' }
+    return '操作按钮'
+}
+
+function ConvertTo-XmindOperationNode {
+    param([object]$Operation)
+
+    $operationName = ConvertTo-XmindTemplateTitle -Value (Get-ObjectPropertyValue -Object $Operation -Names @('operation', 'title', 'name', 'action'))
+    if ([string]::IsNullOrWhiteSpace($operationName)) {
+        $operationName = '业务操作'
+    }
+
+    $children = New-Object System.Collections.Generic.List[hashtable]
+
+    Add-XmindOperationSection -Children $children -Title '权限控制' -Value (Get-ObjectPropertyValue -Object $Operation -Names @('permissions', 'permission'))
+    Add-XmindOperationSection -Children $children -Title '前置条件' -Value (Get-ObjectPropertyValue -Object $Operation -Names @('preconditions', 'precondition', '前置条件'))
+    Add-XmindOperationSection -Children $children -Title '入口' -Value (Get-ObjectPropertyValue -Object $Operation -Names @('entry', 'entries', '入口'))
+    Add-XmindOperationSection -Children $children -Title '数据范围' -Value (Get-ObjectPropertyValue -Object $Operation -Names @('dataRange', 'dataSource', '数据范围', '数据来源'))
+    Add-XmindNamedOperationSection -Children $children -Title (Get-XmindFieldSectionTitle -OperationName $operationName) -Items (Get-ObjectPropertyValue -Object $Operation -Names @('fields', 'fieldItems', '字段')) -DefaultTitle '字段'
+    Add-XmindNamedOperationSection -Children $children -Title '筛选' -Items (Get-ObjectPropertyValue -Object $Operation -Names @('filters', 'filterItems', '筛选项')) -DefaultTitle '筛选项'
+    Add-XmindOperationSection -Children $children -Title '排序' -Value (Get-ObjectPropertyValue -Object $Operation -Names @('sort', 'sorting', '排序'))
+    Add-XmindOperationSection -Children $children -Title '分页' -Value (Get-ObjectPropertyValue -Object $Operation -Names @('pagination', 'page', '分页'))
+    Add-XmindNamedOperationSection -Children $children -Title (Get-XmindButtonSectionTitle -OperationName $operationName) -Items (Get-ObjectPropertyValue -Object $Operation -Names @('buttons', 'actions', '操作按钮', '操作列')) -DefaultTitle '按钮'
+    Add-XmindOperationSection -Children $children -Title '测试点' -Value (Get-ObjectPropertyValue -Object $Operation -Names @('testPoints', 'points', 'rules', 'children'))
+
+    return New-XmindTreeNode -Title $operationName -Children @($children.ToArray())
+}
+
+function Get-XmindOperationTreeNodes {
+    param([pscustomobject]$Data)
+
+    $operations = Get-ObjectPropertyValue -Object $Data -Names @('xmindOperations', 'xmindOperation')
+    if ($null -eq $operations) {
+        return @()
+    }
+
+    $nodes = New-Object System.Collections.Generic.List[hashtable]
+    foreach ($operation in @($operations)) {
+        if ($null -ne $operation) {
+            $nodes.Add((ConvertTo-XmindOperationNode -Operation $operation))
+        }
+    }
+
+    return @($nodes.ToArray())
+}
+function Get-XmindExplicitTreeNodes {
+    param([pscustomobject]$Data)
+
+    $tree = Get-ObjectPropertyValue -Object $Data -Names @('xmindTree', 'xmindNodes')
+    if ($null -eq $tree) {
+        return @()
+    }
+
+    if ($tree -is [array]) {
+        return @($tree)
+    }
+
+    $rootTitle = ConvertTo-XmindReadableTitle -Value (Get-ObjectPropertyValue -Object $tree -Names @('title', 'name', 'text', 'label'))
+    $rootChildren = Get-ObjectPropertyValue -Object $tree -Names @('children', 'nodes', 'items')
+    if (-not [string]::IsNullOrWhiteSpace($rootTitle) -and $rootTitle -eq $WorkbookTitle) {
+        return @($rootChildren)
+    }
+
+    return @($tree)
+}
 
 function New-XmindFile {
     param(
@@ -2217,45 +1965,44 @@ function New-XmindFile {
         [string]$TemplatePath
     )
 
-    $moduleGroups = [ordered]@{}
-    foreach ($testcase in @($Data.testCases)) {
-        $moduleField = Get-TestCaseField -TestCase $testcase -Name 'module'
-        $scenarioField = Get-TestCaseField -TestCase $testcase -Name 'scenario'
-        $moduleName = if ([string]::IsNullOrWhiteSpace($moduleField)) { '未分类模块' } else { $moduleField }
-        $scenarioName = if ([string]::IsNullOrWhiteSpace($scenarioField)) { '未分类场景' } else { $scenarioField }
-
-        if (-not $moduleGroups.Contains($moduleName)) {
-            $moduleGroups[$moduleName] = [ordered]@{}
-        }
-
-        if (-not $moduleGroups[$moduleName].Contains($scenarioName)) {
-            $moduleGroups[$moduleName][$scenarioName] = New-Object System.Collections.Generic.List[hashtable]
-        }
-
-        $caseChildren = New-Object System.Collections.Generic.List[hashtable]
-        $caseChildren.Add((New-XmindTreeNode -Title ("测试步骤：" + [string](@(Get-TestCaseSteps -TestCase $testcase) -join '；')) -Children @()))
-        $caseChildren.Add((New-XmindTreeNode -Title ("预期结果：" + (Get-TestCaseField -TestCase $testcase -Name 'expectedResult')) -Children @()))
-        $caseChildren.Add((New-XmindTreeNode -Title ("优先级：" + (Get-TestCaseField -TestCase $testcase -Name 'priority')) -Children @()))
-        $caseChildren.Add((New-XmindTreeNode -Title ("测试类型：" + (Get-TestCaseField -TestCase $testcase -Name 'testType')) -Children @()))
-        $historyImpact = Get-TestCaseField -TestCase $testcase -Name 'historyImpact'
-        if (-not [string]::IsNullOrWhiteSpace($historyImpact)) {
-            $relatedHistoryCases = @((Get-ObjectPropertyValue -Object $testcase -Name 'relatedHistoryCases')) -join '；'
-            $historyTitle = if ([string]::IsNullOrWhiteSpace($relatedHistoryCases)) { "历史影响：$historyImpact" } else { "历史影响：$historyImpact 关联历史用例：$relatedHistoryCases" }
-            $caseChildren.Add((New-XmindTreeNode -Title $historyTitle -Children @()))
-        }
-
-        $caseNode = New-XmindTreeNode -Title (Get-TestCaseField -TestCase $testcase -Name 'title') -Children @($caseChildren.ToArray())
-
-        $moduleGroups[$moduleName][$scenarioName].Add($caseNode)
-    }
-
     $moduleTopics = New-Object System.Collections.Generic.List[hashtable]
-    foreach ($moduleName in $moduleGroups.Keys) {
-        $scenarioTopics = New-Object System.Collections.Generic.List[hashtable]
-        foreach ($scenarioName in $moduleGroups[$moduleName].Keys) {
-            $scenarioTopics.Add((New-XmindTreeNode -Title $scenarioName -Children @($moduleGroups[$moduleName][$scenarioName].ToArray())))
+    $operationTree = @(Get-XmindOperationTreeNodes -Data $Data)
+    $explicitTree = @(Get-XmindExplicitTreeNodes -Data $Data)
+
+    if ($operationTree.Count -gt 0) {
+        foreach ($node in $operationTree) {
+            $moduleTopics.Add($node)
         }
-        $moduleTopics.Add((New-XmindTreeNode -Title $moduleName -Children @($scenarioTopics.ToArray())))
+    }
+    elseif ($explicitTree.Count -gt 0) {
+        foreach ($node in $explicitTree) {
+            $moduleTopics.Add((ConvertTo-XmindBusinessNode -Node $node))
+        }
+    }
+    else {
+        $moduleGroups = [ordered]@{}
+        foreach ($testcase in @($Data.testCases)) {
+            $moduleName = if ([string]::IsNullOrWhiteSpace([string]$testcase.module)) { '未分类模块' } else { [string]$testcase.module }
+            $scenarioName = if ([string]::IsNullOrWhiteSpace([string]$testcase.scenario)) { '未分类场景' } else { [string]$testcase.scenario }
+
+            if (-not $moduleGroups.Contains($moduleName)) {
+                $moduleGroups[$moduleName] = [ordered]@{}
+            }
+
+            if (-not $moduleGroups[$moduleName].Contains($scenarioName)) {
+                $moduleGroups[$moduleName][$scenarioName] = New-Object System.Collections.Generic.List[hashtable]
+            }
+
+            $moduleGroups[$moduleName][$scenarioName].Add((New-XmindBusinessCaseNode -Testcase $testcase))
+        }
+
+        foreach ($moduleName in $moduleGroups.Keys) {
+            $scenarioTopics = New-Object System.Collections.Generic.List[hashtable]
+            foreach ($scenarioName in $moduleGroups[$moduleName].Keys) {
+                $scenarioTopics.Add((New-XmindTreeNode -Title $scenarioName -Children @($moduleGroups[$moduleName][$scenarioName].ToArray())))
+            }
+            $moduleTopics.Add((New-XmindTreeNode -Title $moduleName -Children @($scenarioTopics.ToArray())))
+        }
     }
 
     $rootTopic = @{
@@ -2276,6 +2023,9 @@ function New-XmindFile {
         New-XmindFromTemplate -TemplatePath $TemplatePath -RootTopic $rootTopic -WorkbookTitle $WorkbookTitle -OutputPath $OutputPath
         return
     }
+
+    New-XmindJsonFile -RootTopic $rootTopic -WorkbookTitle $WorkbookTitle -OutputPath $OutputPath
+    return
 
     $metadata = @{}
 
@@ -2345,26 +2095,18 @@ else {
     $effectiveNoSplitByModule = -not $SplitByModule.IsPresent
 }
 
-$historyContext = $null
-if (-not [string]::IsNullOrWhiteSpace($HistoryPath)) {
-    $historyContext = New-HistoryContext -Path $HistoryPath -Data $data
-    Set-ObjectProperty -Target $data -Name 'historyContext' -Value $historyContext
-}
-
 if ($Preview.IsPresent) {
     $allCases = @($data.testCases)
     $moduleStats = [ordered]@{}
     $totalP1 = 0
     foreach ($tc in $allCases) {
-        $moduleField = Get-TestCaseField -TestCase $tc -Name 'module'
-        $scenarioField = Get-TestCaseField -TestCase $tc -Name 'scenario'
-        $mod = if ([string]::IsNullOrWhiteSpace($moduleField)) { '未分类模块' } else { $moduleField }
-        $scn = if ([string]::IsNullOrWhiteSpace($scenarioField)) { '未分类场景' } else { $scenarioField }
+        $mod = if ([string]::IsNullOrWhiteSpace([string]$tc.module)) { '未分类模块' } else { [string]$tc.module }
+        $scn = if ([string]::IsNullOrWhiteSpace([string]$tc.scenario)) { '未分类场景' } else { [string]$tc.scenario }
         if (-not $moduleStats.Contains($mod)) {
             $moduleStats[$mod] = [ordered]@{ total = 0; p1 = 0; scenarios = [ordered]@{} }
         }
         $moduleStats[$mod].total++
-        if ((Get-TestCaseField -TestCase $tc -Name 'priority') -eq 'P1') { $moduleStats[$mod].p1++; $totalP1++ }
+        if ([string]$tc.priority -eq 'P1') { $moduleStats[$mod].p1++; $totalP1++ }
         if (-not $moduleStats[$mod].scenarios.Contains($scn)) { $moduleStats[$mod].scenarios[$scn] = 0 }
         $moduleStats[$mod].scenarios[$scn]++
     }
@@ -2376,7 +2118,6 @@ if ($Preview.IsPresent) {
         testScope = @($data.testScope)
         risks = @($data.risks)
         openQuestions = @($data.openQuestions)
-        historyContext = $historyContext
         totalTestCases = $allCases.Count
         totalP1 = $totalP1
         modules = $moduleStats
@@ -2391,7 +2132,8 @@ if (-not $OutputDir) {
     } else {
         '测试用例'
     }
-    $OutputDir = Get-DefaultOutputDirectory -DocumentName $defaultName
+    $safeName = Get-SafeFileName -Name $defaultName
+    $OutputDir = Join-Path (Get-Location) "exports/$safeName"
 }
 
 Ensure-Directory -Path $OutputDir
@@ -2400,43 +2142,31 @@ $moduleResults = New-Object System.Collections.Generic.List[object]
 
 $moduleDataList = if ($effectiveNoSplitByModule) {
     @([pscustomobject][ordered]@{
-        prefix = if ($data.prefix) { [string]$data.prefix } else { $null }
+        prefix = if (Get-ObjectPropertyValue -Object $data -Names @('prefix')) { [string](Get-ObjectPropertyValue -Object $data -Names @('prefix')) } else { $null }
         documentSummary = $data.documentSummary
         requirementSummary = @($data.requirementSummary)
         openQuestions = @($data.openQuestions)
         testScope = @($data.testScope)
         risks = @($data.risks)
         testCases = @($data.testCases)
-        historyContext = $historyContext
+        xmindTree = (Get-ObjectPropertyValue -Object $data -Names @('xmindTree', 'xmindNodes'))
+        xmindOperations = (Get-ObjectPropertyValue -Object $data -Names @('xmindOperations', 'xmindOperation'))
         moduleName = if ($data.documentSummary -and $data.documentSummary.name) { [string]$data.documentSummary.name } else { '合并测试用例' }
     })
 }
 else {
-    $groups = @(Get-ModuleDataGroups -Data $data)
-    foreach ($group in $groups) {
-        Set-ObjectProperty -Target $group -Name 'historyContext' -Value (Get-ScopedHistoryContext -HistoryContext $historyContext -ModuleName ([string]$group.moduleName))
-    }
-    $groups
+    @(Get-ModuleDataGroups -Data $data)
 }
 
 foreach ($moduleData in $moduleDataList) {
     $moduleName = [string]$moduleData.moduleName
-    $moduleOutputDir = if ($effectiveNoSplitByModule) {
-        $docSubDir = Join-Path $OutputDir (Get-SafeFileName -Name $moduleName)
-        Ensure-Directory -Path $docSubDir
-        $docSubDir
-    } else { Join-Path $OutputDir (Get-ModuleDirectoryName -ModuleName $moduleName) }
+    $moduleOutputDir = if ($effectiveNoSplitByModule) { $OutputDir } else { Join-Path $OutputDir (Get-ModuleDirectoryName -ModuleName $moduleName) }
     Ensure-Directory -Path $moduleOutputDir
 
     $baseFileName = if ($effectiveNoSplitByModule) { Get-SafeFileName -Name $moduleName } else { 'testcases' }
     $markdownPath = Join-Path $moduleOutputDir "$baseFileName.md"
     $xlsxPath = Join-Path $moduleOutputDir "$baseFileName.xlsx"
     $xmindPath = Join-Path $moduleOutputDir "$baseFileName.xmind"
-    $absoluteFiles = [ordered]@{
-        markdown = (Get-AbsolutePath -Path $markdownPath)
-        excel = (Get-AbsolutePath -Path $xlsxPath)
-        xmind = (Get-AbsolutePath -Path $xmindPath)
-    }
     $exportResults = @()
 
     try {
@@ -2470,31 +2200,37 @@ foreach ($moduleData in $moduleDataList) {
 
     $successfulTypes = @($exportResults | Where-Object { $_.status -eq 'success' } | ForEach-Object { $_.type })
     $failedTypes = @($exportResults | Where-Object { $_.status -eq 'failed' } | ForEach-Object { $_.type })
+    $failureReasons = @($exportResults | Where-Object { $_.status -eq 'failed' } | ForEach-Object { [ordered]@{ type = $_.type; reason = $_.failureReason } })
     $allSucceeded = ($failedTypes.Count -eq 0)
     $hasDegradation = ($successfulTypes.Count -gt 0 -and $failedTypes.Count -gt 0)
-    $quality = Test-ExportQuality -ModuleData $moduleData -Files $absoluteFiles
 
     $moduleResults.Add([pscustomobject][ordered]@{
         module = $moduleName
         outputDir = (Get-AbsolutePath -Path $moduleOutputDir)
-        files = $absoluteFiles
+        files = [ordered]@{
+            markdown = (Get-AbsolutePath -Path $markdownPath)
+            excel = (Get-AbsolutePath -Path $xlsxPath)
+            xmind = (Get-AbsolutePath -Path $xmindPath)
+        }
         summary = [ordered]@{
             successfulTypes = @($successfulTypes)
             failedTypes = @($failedTypes)
+            failureReasons = @($failureReasons)
             hasDegradation = $hasDegradation
             allSucceeded = $allSucceeded
         }
-        quality = $quality
     })
 }
 
-$moduleQualityResults = @($moduleResults.ToArray() | ForEach-Object { $_.quality })
 $result = [ordered]@{
     inputJson = $inputSource
     outputDir = (Get-AbsolutePath -Path $OutputDir)
-    historyContext = $historyContext
     modules = @($moduleResults.ToArray())
-    quality = (Merge-QualityResults -QualityResults $moduleQualityResults)
 }
 
 $result | ConvertTo-Json -Depth 10
+
+
+
+
+
