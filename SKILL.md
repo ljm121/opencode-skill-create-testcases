@@ -1,13 +1,13 @@
 ---
 name: create-testcases
-description: Use when users provide uploaded files, local document paths, shared URLs, pasted requirement text, unstructured product notes, or requests based on IMA knowledge base / notes, and need structured QA test cases exported as Markdown, Excel, and XMind files. Proactively supports searching and retrieving requirement documents from IMA knowledge base / notes via ima-skill to generate test cases based on existing documentation. Use for generating systematic business-function test cases, multi-module QA plans, priority/scenario-classified cases, and XMind outputs in historical readable business-tree or operation-template style using real fields, filters, buttons, and test points.
+description: Use when users provide uploaded files, local document paths, shared URLs, pasted requirement text, unstructured product notes, or requests based on IMA knowledge base / notes, and need structured QA test cases exported as XMind files (.xmind). Proactively supports searching and retrieving requirement documents from IMA knowledge base / notes via ima-skill to generate test cases based on existing documentation. Use for generating systematic business-function test cases, multi-module QA plans, priority/scenario-classified cases, and XMind outputs in historical readable business-tree or operation-template style using real fields, filters, buttons, and test points.
 ---
 
 # 测试用例生成
 
 ## 概述
 
-从需求文档、目录、URL、设计稿摘要、粘贴文本，**或通过 `ima-skill` 自动检索获取的 IMA 知识库/笔记文档**中提炼业务功能测试用例，并导出真实的 `Markdown`、`Excel`、`XMind` 文件。
+从需求文档、目录、URL、设计稿摘要、粘贴文本，**或通过 `ima-skill` 自动检索获取的 IMA 知识库/笔记文档**中提炼业务功能测试用例，并导出真实的 `XMind` 思维导图文件。
 
 用户提供路径、链接、文本或指定业务功能后，agent 要自行读取/检索、解析、提炼、确认和导出；最终回复聚焦产物路径和处理结果，不把命令行说明当作主体内容。
 
@@ -16,9 +16,9 @@ description: Use when users provide uploaded files, local document paths, shared
 1. 读取/检索输入：支持本地文件、目录、URL、Mockplus 内容、粘贴文本，**以及自动通过 `ima-skill` 在 IMA 知识库/笔记中检索获取已有需求文档**。
 2. 分析需求：在已有文档或输入材料基础上，归纳功能模块、业务操作、字段/筛选项/按钮、测试范围、风险和待确认问题。
 3. 展示摘要：按固定摘要模板让用户确认；用户已明确要求直接实施时，也要至少先给出可核对的分析摘要。
-4. 生成结构化 JSON：保留 Markdown/Excel 所需字段，并为 XMind 补充 `xmindOperations` 或 `xmindTree`。
-5. 调用 `scripts/export-testcases.ps1` 导出三类文件。
-6. 汇报结果并主动发起 IMA 知识库归档确认：说明输入来源（含知识库文档来源）、输出目录、成功项，并在文末主动向用户发起知识库归档确认（支持独立新文件或合并演进）。
+4. 生成结构化 JSON：保留测试用例所需字段，并为 XMind 补充 `xmindOperations` 或 `xmindTree`。
+5. 调用 `scripts/export-testcases.ps1` 导出 XMind 文件。
+6. 汇报结果：说明输入来源（含知识库文档来源）、输出目录、成功项，以及关键风险和待确认问题。所有生成的测试用例文件仅保存在本地输出目录中，不执行且不提示同步/归档至知识库。
 
 ## 强制摘要模板
 
@@ -138,6 +138,77 @@ description: Use when users provide uploaded files, local document paths, shared
 - 当需求明确给出不符合预期时的提示或表现时，在对应最后一级测试点下继续生成子节点，例如 toast 文案、字段红字提示、按钮置灰、弹窗保持/关闭、页面不可访问、数据不变化等；没有明确提示或表现时不要硬加子节点。
 - 优先级和测试类型默认留在 Markdown/Excel 中；只有当它们本身是业务判断或筛选条件时，才作为 XMind 节点出现。
 
+## 高频易漏场景自检 Checklist（启发式防漏规范）
+
+在提炼并生成基础业务操作后，**必须对照以下 16 项易遗漏场景逐条自检，补齐关键防御性与边界用例**：
+
+### 维度一：交互与前端体验
+1. **跨页面/跨场景状态同步**：
+   - 凡涉及“状态变更”的操作（勾选、同意、支付、审批、开关切换），需验证关联页面、列表项、全局状态栏是否实时联动。
+   - 例：在账密登录页同意协议 -> 返回一键登录页，协议勾选状态联动；列表页批量编辑状态 -> 详情页与统计卡片同步更新。
+2. **操作撤回后重新触发**：
+   - 凡是有“取消 / 拒绝 / 放弃 / 关闭弹窗”的场景，必须补一条“撤回后重新触发”的测试点。
+   - 例：点击[不同意]关闭协议弹窗 -> 再次点击登录入口，是否仍能正常弹出弹窗并继续走通流程。
+3. **输入残留与表单清理**：
+   - 填写一半表单后关闭弹窗、切换 Tab 或切换联动下拉项时，需验证临时输入的数据是否正确重置或符合预期。
+   - 例：新增弹窗填写未提交 -> 关闭弹窗再打开，表单内容应清空，不应残留上次草稿或脏校验报错。
+4. **极值、边界与空状态展示**：
+   - 文本长度极限（最大字符数、换行/省略号展示、富文本防越界截断）；数值极限（0、负数、极大值、多位小数精度）。
+   - 列表无数据（0 条记录）、网络断开或无权限时，必须验证有友好的空状态（Empty State）占位与引导说明。
+5. **国际化与多时区/多分辨率适配**：
+   - 跨时区展示时间（如 UTC 与本地时间）、按自然日统计报表跨天/跨年/夏令时临界点数据准确性。
+   - 小屏幕笔记本（1366x768）、125%/150% 系统 DPI 缩放比例下，表格操作列与弹窗确认按钮是否遮挡溢出。
+
+### 维度二：业务流与状态机
+6. **状态机逆向与非法跃迁**：
+   - 凡涉及状态机流转（如草稿 -> 待审 -> 已通过 -> 已作废），必须验证状态的单向性与非法跃迁拦截。
+   - 例：已作废或已完成的单据，不可再触发审核或编辑动作；不得直接从“草稿”跨越到“已通过”。
+7. **前置状态变体**：
+   - 当功能与某种状态强相关时（如已登录/未登录、开/关、已配置/首次未配置、白名单/非白名单），要枚举关键起始状态变体。
+   - 例：进入编辑页面，分别覆盖「已有历史数据」与「字段原为空值」两种起始状态的渲染。
+8. **隐式路径延伸与副作用联动**：
+   - 覆盖所有能触发该逻辑的路径，补充返回上一页、页面刷新、列表重载等隐式触发时机的联动。
+   - 验证下游衍生链路与副作用生效：消息推送/站内信触达、操作日志落库、统计看板与报表延迟更新。
+9. **批量操作与部分成功容错**：
+   - 批量导入/审批/删除时，验证部分数据失败的容错策略（整体回滚 vs 部分成功继续）。
+   - 部分失败时是否有清晰的失败原因明细清单/下载明细；全选跨页逻辑（仅勾选当页 vs 跨所有分页全选）。
+
+### 维度三：异常与安全防护
+10. **失败/拦截后流程防绕过**：
+    - 凡是有“拦截 / 校验 / 验证 / 权限限制”性质的功能，失败后必须验证流程的强制阻断性。
+    - 例：滑块验证失败、短信验证码错误时，不得跳过验证直接发起下一步提交；无权限用户不可通过直接请求接口绕过。
+11. **多角色并发冲突与数据越权（并发乐观锁）**：
+    - 多用户/多管理员并发修改同一张单据，验证乐观锁机制（如提示“数据已被更新，请刷新重试”），防止静默相互覆盖。
+    - 多租户/多部门数据隔离与水平越权校验，URL 直接篡改 ID 必须被安全阻断。
+12. **离线缓存、Token 失效与会话中断**：
+    - 用户填写长表单过程中 Token 过期，保存时是否具备无感刷新或重新授权机制，防止用户辛苦填写的内容粗暴清空。
+    - 账号异地登录或会话注销后，正在进行的操作应友好拦截并提示下线。
+
+### 维度四：系统架构与鲁棒性
+13. **幂等性与防重复提交**：
+    - 保存按钮连续快速双击、弱网重试时，按钮应立即置灰防连击，服务端应拦截重复提交，不得产生双重扣款或重复记录。
+14. **历史存量数据与版本兼容性**：
+    - 新增必填字段、调整枚举范围或改造数据结构，老旧业务单据在详情页查看或再次编辑提交时，不得引发白屏崩溃，需兼容缺省展示。
+15. **异步任务与长耗时状态闭环（Processing 态）**：
+    - 异步批量导入/导出、文件处理或后台转码时，必须覆盖“进行中”状态（刷新后保持）、并发任务排队/拦截、底层超时失败兜底与结果通知机制。
+16. **第三方依赖超时与熔断降级**：
+    - 依赖外部接口（支付网关、OSS上传、短信邮件服务）超时或服务异常时，验证业务超时兜底与友好提示，杜绝界面白屏或无响应卡死。
+
+## XMind 导图标注与节点语法规范
+
+为了保证导出的 XMind 思维导图兼具高可读性与自动化解析规范，统一遵循以下标注约定：
+
+1. **`#` 注释/忽略节点**：
+   - 以 `#` 开头的节点标题（如 `# 暂不测试`、`# 二期规划`）表示该分支为草稿或废弃分支，不纳入用例统计与正式测试范围。
+2. **`【待确认】` 疑问节点**：
+   - 凡需求未明确说明、存在业务冲突或需与产品/架构师对齐的问题，统一在节点前标记 `【待确认】` 或 `?`（如 `【待确认】历史数据是否需批量刷库`）。
+3. **具象断言规范**：
+   - 预期结果节点严禁使用“操作正常”、“校验通过”等抽象模糊词。
+   - 必须指明具体的预期表现：如 Toast 提示文本、红字报错内容、按钮禁用/高亮状态、列表新增行状态、关联弹窗保持或关闭。
+4. **B 端权限与副作用覆盖**：
+   - 涉及权限控制的操作，需显式拆解无权限时的表现（按钮隐藏/置灰、接口 403 拦截）；
+   - 涉及数据流转的操作，在末级测试点补充日志记录（Audit Log）与消息触达（邮件/站内信）校验。
+
 ## IMA 知识库联动机制（自动检索与内容获取）
 
 当生成用例时需要基于已有系统文档、用户指定了知识库/笔记，或用户输入业务功能名称时，**agent 应自动通过 `scripts/ima-bridge.mjs` 联动检索 IMA 知识库或笔记中的已有文档作为需求基线**：
@@ -149,9 +220,10 @@ description: Use when users provide uploaded files, local document paths, shared
 2. **提取文档内容**：
    - XMind 思维导图（`media_type=14`）：`ima-bridge.mjs` 内置原生轻量解压器，自动在内存中解压并递归转换为树状 Markdown。
    - 个人笔记/文档（`media_type=11`）：自动调用 `openapi/note/v1/get_doc_content` 读取正文纯文本。
-3. **基于已有文档融合生成**：
+3. **基于已有文档融合生成与存量回归全量输出**：
    - 将知识库提取出的已有功能规范、字段规则与用户本次提供的新增诉求进行结合。
    - 在已有文档基线之上全面覆盖正向流程、字段校验、状态流转、边界条件与异常分支。
+   - **【回归用例必须实体化生成导出（强制）】**：在差异比对中识别出的 🔵 需重点回归的存量范围（Regression Items），**必须作为实体测试用例完整生成并输出**到导出的 XMind 测试资产（`.xmind`）中（在 XMind 中作为各模块回归分支或【存量重点回归测试】专属分支输出），确保覆盖状态机流转、消息推送、关联衍生链与上下游业务协同，严禁仅在分析摘要中列出。
 4. **来源记录与追踪**：
    - 在 `documentSummary.parseResult`、`requirementSummary` 以及“需求分析摘要”的“输入来源”中明确注明所参考的 IMA 知识库条目或笔记名称，确保用例可追溯。
 
@@ -164,25 +236,11 @@ description: Use when users provide uploaded files, local document paths, shared
    - 支持 `--group <名称>`：精准指定仅抓取目标业务分组（例如 `--group "系统小优化"`）。
    - 支持 `--exclude-group <名称>`：自动过滤草稿脏数据（例如 `--exclude-group "草稿"`）。
 
-## IMA 知识库双向归档（Push Baseline 双策略）
-
-测试用例导出并通过评审后，可通过 `scripts/ima-bridge.mjs push` 一键反哺归档到 IMA 知识库，提供两种灵活策略：
-
-1. **策略一：独立新版本文件归档（`--mode new-file`，默认推荐）**：
-   - 示例：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/V4.8.2系统小优化测试用例/V4.8.2系统小优化测试用例.xmind" --mode new-file`
-   - 效果：在知识库中保存为独立的新文件，保持历史基线完整与改动可追溯。
-2. **策略二：合并演进至原脑图（`--mode merge`）**：
-   - 示例（单模块指定目标）：`node scripts/ima-bridge.mjs push "geo全功能用例" --file "exports/.../用例.xmind" --mode merge --target-media-id "<原xmind_id>" --version-tag "V4.8.2"`
-   - 示例（多模块自动匹配批量合并）：`node scripts/ima-bridge.mjs push-batch "geo全功能用例" --file "exports/.../用例.xmind" --version-tag "V4.8.2"`
-   - 效果：智能拆解各大子模块，自动在知识库中检索高置信度历史基线脑图并定向合并，无需人工一个个输入 `target-media-id`。可加 `--dry-run` 预览匹配结果。
-3. **文件归档命名规则**：
-   - 归档入库的文件名必须严格遵循**原文件名或带有版本号**（例如：原脑图名 `商务合同审批详情.xmind`，或带版本号 `商务合同审批详情_V4.8.2.xmind`、`V4.8.2系统小优化测试用例.xmind`）。
-   - 严禁在知识库中使用 `_merged.xmind` 等内部临时命名称谓，确保知识库资产整洁规范。
 
 ## 跨平台容器化导出引擎（纯 Node.js 实现）
 
 除 Windows 专用的 `export-testcases.ps1` 外，新增纯 Node.js 原生跨平台导出器 `scripts/export-testcases.mjs`：
-- **零外部 npm 依赖**：内置原生 ZIP、OpenXML Excel、XMind 打包引擎。
+- **零外部 npm 依赖**：内置原生 ZIP、XMind 打包引擎。
 - **全平台支持**：支持在 Windows、macOS、Linux、Docker 容器与 CI/CD 流水线中无差别执行。
 - **调用方式**：
   ```bash
@@ -191,10 +249,10 @@ description: Use when users provide uploaded files, local document paths, shared
 
 ## 导出与命名
 
-- 默认合并导出一套 `{documentSummary.name}.md/.xlsx/.xmind`。
-- 传 `-SplitByModule` 时按模块拆分子目录，文件名统一为 `testcases.*`。
+- 默认合并导出一套 `{documentSummary.name}.xmind`。
+- 传 `-SplitByModule` 时按模块拆分子目录，文件名统一为 `testcases.xmind`。
 - 最终产物只写入 `exports/` 或用户指定输出目录；不要在 skill 根目录生成调试中间文件。
-- 即使合并导出，也要在 Markdown/Excel 内容中保留模块分组。
+- 即使合并导出，也要在 XMind 内容中保留模块分组。
 
 ## 关键规则
 
@@ -203,25 +261,10 @@ description: Use when users provide uploaded files, local document paths, shared
 - URL 输入需要先获取网页内容并解析成结构化数据；脚本的 `-InputUrl` 只负责记录来源和桥接提示。
 - `DOCX` 使用脚本内置内存读取；`DOC` / `PDF` 使用 Office COM 只读读取。除用户明确确认外，不落盘输入副本或提取文本。
 - 用例标题必须表达具体测试意图，预期结果必须可验证，对应界面状态、提示信息、数据结果、权限结果或状态变化。
-- Markdown、Excel、XMind 表达同一批测试语义，但 XMind 的组织方式应服务扫读和拆解，不强行保持表格字段形态。
+- XMind 的组织方式应服务扫读和拆解，不强行保持表格字段形态。
 
-## 最终回复与知识库归档确认引导
+## 最终回复
 
-最终回复明确输入来源（包括检索到的 IMA 知识库文档/笔记）、输出目录、是否合并导出、成功项、失败项、关键风险和待确认问题。
-
-**归档策略推荐决策规则**：
-- **常规单一功能 / 局部小迭代**：默认推荐【选项 A】（独立新文件归档），保持版本边界清晰。
-- **跨系统 / 大迭代变更**：**如果一次迭代改动跨度较大、跨越多个业务子系统，需长期维护单模块的活文档测试基线，推荐采用方案 2（按模块拆分定向合并）**，引导用户分别合并至各子系统的历史基线中。
-
-**若测试用例产物已成功生成，Agent 必须在最终回复结尾处主动发起【IMA 知识库归档确认】引导**：
-```markdown
----
-### 知识库双向归档确认
-本次测试用例已成功生成并保存在本地。是否需要将测试资产同步归档至 IMA 知识库（如：`<目标知识库名>`）？
-1. **选项 A**：归档为独立新版本文件（`--mode new-file`，如 `<版本>测试用例.xmind`），保持版本独立与改动可追溯。（适合单功能小迭代）
-2. **选项 B**：合并演进至原脑图（`--mode merge`），按模块拆分定向合并融入原脑图同名分支，维护单模块全量活文档。（适合改动跨度大、涉及多子系统需长期维护基线的场景）
-3. **选项 C**：暂不归档，仅保留本地导出产物。
-```
-当用户做出选择后，Agent 调用 `scripts/ima-bridge.mjs push` 自动执行归档入库。
+最终回复明确输入来源（包括检索到的 IMA 知识库文档/笔记）、输出目录、是否合并导出、成功项、失败项、关键风险和待确认问题。所有生成的测试用例文件仅保存在本地输出目录中，不向知识库执行同步，也不主动询问或提示归档至知识库。
 
 

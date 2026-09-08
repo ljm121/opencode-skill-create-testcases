@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { spawnAsync, runPowerShell, exporterScriptPath, skillRoot } from './__test-utils__.mjs';
+import { spawnAsync, runPowerShell, exporterScriptPath, skillRoot, readZipEntry } from './__test-utils__.mjs';
 
 const fixtureRoot = path.join(skillRoot, 'fixtures', 'inputpath-fixtures');
 const singleFilePath = path.join(fixtureRoot, 'single-requirement.md');
@@ -33,14 +33,15 @@ test('export-testcases supports single InputPath file with merged root output', 
     const result = JSON.parse(stdout);
 
     const entries = await fs.readdir(tempDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /打款方式搜索下拉调整/);
-    assert.match(markdown, /搜索能力/);
-    assert.match(markdown, /选项维护/);
-    assert.match(markdown, /打款方式控件改为可搜索下拉单选/);
-    assert.match(markdown, /新增全球雇佣新加坡-云汇选项/);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /打款方式搜索下拉调整/);
+    assert.match(xmindContent, /搜索能力/);
+    assert.match(xmindContent, /选项维护/);
+    assert.match(xmindContent, /打款方式控件改为可搜索下拉单选/);
+    assert.match(xmindContent, /新增全球雇佣新加坡-云汇选项/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -54,15 +55,16 @@ test('export-testcases supports same-directory InputPath with merged root output
     const result = JSON.parse(stdout);
 
     const entries = await fs.readdir(tempDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /模块A/);
-    assert.match(markdown, /列表展示/);
-    assert.match(markdown, /模块B/);
-    assert.match(markdown, /导出能力/);
-    assert.match(markdown, /模块C/);
-    assert.match(markdown, /失败反馈/);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /模块A/);
+    assert.match(xmindContent, /列表展示/);
+    assert.match(xmindContent, /模块B/);
+    assert.match(xmindContent, /导出能力/);
+    assert.match(xmindContent, /模块C/);
+    assert.match(xmindContent, /失败反馈/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

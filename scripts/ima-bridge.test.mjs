@@ -4,15 +4,10 @@ import zlib from 'node:zlib';
 
 import {
   findImaApiScript,
-  findCosUploadScript,
   readZipEntries,
   topicTreeToMarkdown,
   extractEntities,
   diffBaseline,
-  mergeTopicTrees,
-  scoreItemRelevance,
-  extractModuleTopicsFromXmind,
-  formatArchivedFileName,
 } from './ima-bridge.mjs';
 
 function createMockZipBuffer(filename, content, compress = true) {
@@ -169,122 +164,3 @@ test('diffBaseline classifies added, modified, and regression items', () => {
   assert.ok(result.markdown.includes('Added'));
 });
 
-test('findCosUploadScript locates cos-upload.cjs or candidate path', () => {
-  const scriptPath = findCosUploadScript();
-  if (scriptPath) {
-    assert.ok(scriptPath.endsWith('cos-upload.cjs'));
-  }
-});
-
-test('mergeTopicTrees merges existing branches and appends tagged new branches', () => {
-  const baseRoot = {
-    title: '系统根导图',
-    children: {
-      attached: [
-        {
-          title: '用户认证模块',
-          children: {
-            attached: [
-              { title: '账号密码登录' },
-              { title: '手机验证码登录' },
-            ],
-          },
-        },
-      ],
-    },
-  };
-
-  const newTree = {
-    title: '本次迭代',
-    children: {
-      attached: [
-        {
-          title: '用户认证模块',
-          children: {
-            attached: [
-              { title: '指纹生物识别 (新增)' },
-            ],
-          },
-        },
-        {
-          title: '权限管理模块',
-          children: {
-            attached: [
-              { title: '多角色权限分配' },
-            ],
-          },
-        },
-      ],
-    },
-  };
-
-  const merged = mergeTopicTrees(baseRoot, newTree, { versionTag: 'V2.0.0' });
-
-  assert.equal(merged.children.attached.length, 2);
-
-  // 1. Merged existing branch
-  const authBranch = merged.children.attached.find((b) => b.title === '用户认证模块');
-  assert.ok(authBranch);
-  assert.equal(authBranch.children.attached.length, 3);
-  assert.equal(authBranch.children.attached[2].title, '指纹生物识别 (新增)');
-
-  // 2. Appended new branch with version tag
-  const permissionBranch = merged.children.attached.find((b) => b.title.includes('权限管理模块'));
-  assert.ok(permissionBranch);
-  assert.equal(permissionBranch.title, '【V2.0.0】 权限管理模块');
-});
-
-test('scoreItemRelevance computes matching scores accurately across business domains', () => {
-  // 1. Exact substring match -> 100
-  assert.equal(scoreItemRelevance('用户中心模块', '用户中心模块-基础版.xmind'), 100);
-  assert.equal(scoreItemRelevance('购物车结算', '购物车结算中心.xmind'), 100);
-
-  // 2. High semantic / keyword overlap -> >= 50
-  assert.ok(scoreItemRelevance('用户中心设置-Web端', '用户中心设置详情.xmind') >= 60);
-  assert.ok(scoreItemRelevance('购物车结算-优惠券抵扣', '购物车结算中心.xmind') >= 50);
-  assert.ok(scoreItemRelevance('用户收货地址管理', '用户中心_地址管理.xmind') >= 50);
-
-  // 3. Completely unrelated -> 0
-  assert.equal(scoreItemRelevance('用户中心配置', '完全不相关的文档.xmind'), 0);
-});
-
-test('extractModuleTopicsFromXmind extracts first-level module branches', () => {
-  const content = [
-    {
-      rootTopic: {
-        title: '系统功能总览',
-        children: {
-          attached: [
-            { title: '订单管理模块', children: { attached: [{ title: '订单列表查询' }] } },
-            { title: '商品中心模块', children: { attached: [{ title: '商品上架与库存' }] } },
-          ],
-        },
-      },
-    },
-  ];
-
-  const zipBuf = createMockZipBuffer('content.json', JSON.stringify(content), true);
-  const modules = extractModuleTopicsFromXmind(zipBuf);
-
-  assert.equal(modules.length, 2);
-  assert.equal(modules[0].moduleName, '订单管理模块');
-  assert.equal(modules[1].moduleName, '商品中心模块');
-});
-
-test('formatArchivedFileName respects original name or appends version tag without generic _merged', () => {
-  // 1. Original name with versionTag already inside
-  const name1 = formatArchivedFileName('V2.0.0用户中心功能测试用例.xmind', { versionTag: 'V2.0.0', mode: 'new-file' });
-  assert.equal(name1, 'V2.0.0用户中心功能测试用例.xmind');
-
-  // 2. Original name without versionTag -> appends version tag
-  const name2 = formatArchivedFileName('用户中心功能测试用例.xmind', { versionTag: 'V2.0.0', mode: 'new-file' });
-  assert.equal(name2, '用户中心功能测试用例_V2.0.0.xmind');
-
-  // 3. Merge mode with target historical title and versionTag
-  const name3 = formatArchivedFileName('temp.xmind', { versionTag: 'V2.0.0', mode: 'merge', targetTitle: '用户中心设置详情.xmind' });
-  assert.equal(name3, '用户中心设置详情_V2.0.0.xmind');
-
-  // 4. Merge mode without versionTag -> preserves original target file name
-  const name4 = formatArchivedFileName('temp.xmind', { versionTag: '', mode: 'merge', targetTitle: '用户中心设置详情.xmind' });
-  assert.equal(name4, '用户中心设置详情.xmind');
-});

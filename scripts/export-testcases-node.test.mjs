@@ -128,12 +128,10 @@ test('exportTestcases generates all 3 artifacts and respects preview', async () 
   try {
     const result = await exportTestcases(payload, { outputDir: tempDir });
     assert.equal(result.success, true);
-    assert.equal(result.outputs.length, 3);
+    assert.equal(result.outputs.length, 1);
 
     const files = await fs.readdir(tempDir);
-    assert.ok(files.includes('自动化纯Node测试.md'));
-    assert.ok(files.includes('自动化纯Node测试.xlsx'));
-    assert.ok(files.includes('自动化纯Node测试.xmind'));
+    assert.deepEqual(files, ['自动化纯Node测试.xmind']);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }

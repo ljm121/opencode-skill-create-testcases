@@ -2164,29 +2164,8 @@ foreach ($moduleData in $moduleDataList) {
     Ensure-Directory -Path $moduleOutputDir
 
     $baseFileName = if ($effectiveNoSplitByModule) { Get-SafeFileName -Name $moduleName } else { 'testcases' }
-    $markdownPath = Join-Path $moduleOutputDir "$baseFileName.md"
-    $xlsxPath = Join-Path $moduleOutputDir "$baseFileName.xlsx"
     $xmindPath = Join-Path $moduleOutputDir "$baseFileName.xmind"
     $exportResults = @()
-
-    try {
-        $markdownContent = New-MarkdownContent -Data $moduleData
-        [System.IO.File]::WriteAllText($markdownPath, $markdownContent, [System.Text.UTF8Encoding]::new($false))
-        $exportResults += New-ExportResultItem -Type 'markdown' -Path $markdownPath -Status 'success' -FailureReason ''
-    }
-    catch {
-        Remove-FileIfExists -Path $markdownPath
-        $exportResults += New-ExportResultItem -Type 'markdown' -Path $markdownPath -Status 'failed' -FailureReason $_.Exception.Message
-    }
-
-    try {
-        New-XlsxFile -Data $moduleData -OutputPath $xlsxPath
-        $exportResults += New-ExportResultItem -Type 'excel' -Path $xlsxPath -Status 'success' -FailureReason ''
-    }
-    catch {
-        Remove-FileIfExists -Path $xlsxPath
-        $exportResults += New-ExportResultItem -Type 'excel' -Path $xlsxPath -Status 'failed' -FailureReason $_.Exception.Message
-    }
 
     $workbookTitle = $moduleName
     try {
@@ -2208,8 +2187,6 @@ foreach ($moduleData in $moduleDataList) {
         module = $moduleName
         outputDir = (Get-AbsolutePath -Path $moduleOutputDir)
         files = [ordered]@{
-            markdown = (Get-AbsolutePath -Path $markdownPath)
-            excel = (Get-AbsolutePath -Path $xlsxPath)
             xmind = (Get-AbsolutePath -Path $xmindPath)
         }
         summary = [ordered]@{

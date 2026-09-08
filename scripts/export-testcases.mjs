@@ -423,20 +423,7 @@ export async function exportTestcases(payload, options = {}) {
 
   const outputs = [];
 
-  // 1. Markdown
-  const mdPath = path.join(baseDir, `${docName}.md`);
-  const mdContent = createMarkdownString(payload);
-  await fs.writeFile(mdPath, mdContent, 'utf8');
-  outputs.push({ type: 'markdown', path: mdPath, status: 'success' });
-
-  // 2. Excel
-  const xlsxPath = path.join(baseDir, `${docName}.xlsx`);
-  const excelRows = buildExcelRowsFromPayload(payload);
-  const xlsxBuffer = createXlsxBuffer(excelRows, 'TestCases');
-  await fs.writeFile(xlsxPath, xlsxBuffer);
-  outputs.push({ type: 'excel', path: xlsxPath, status: 'success' });
-
-  // 3. XMind
+  // XMind
   const xmindPath = path.join(baseDir, `${docName}.xmind`);
   const xmindTree = buildXmindTreeFromPayload(payload);
   const xmindBuffer = createXmindBuffer(xmindTree, docName);

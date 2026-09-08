@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { buildModuleJson } from './build-mockplus-testcases.mjs';
-import { spawnAsync, runExportToDir, skillRoot } from './__test-utils__.mjs';
+import { spawnAsync, runExportToDir, skillRoot, readZipEntry } from './__test-utils__.mjs';
 
 const mockplusPs1Path = path.join(skillRoot, 'scripts', 'export-mockplus-testcases.ps1');
 const mockplusMjsPath = path.join(skillRoot, 'scripts', 'export-mockplus-testcases.mjs');
@@ -63,15 +63,16 @@ test('mockplus notification fixture exports top-description scenarios end-to-end
     const result = JSON.parse(stdout);
 
     const entries = await fs.readdir(tempDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /企业邀请承包商签约合同/);
-    assert.match(markdown, /承包商合同即将到期/);
-    assert.match(markdown, /发送签约邀请通知/);
-    assert.match(markdown, /发送到期提醒通知/);
-    assert.doesNotMatch(markdown, /页面展示/);
-    assert.doesNotMatch(markdown, /正文说明/);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /企业邀请承包商签约合同/);
+    assert.match(xmindContent, /承包商合同即将到期/);
+    assert.match(xmindContent, /发送签约邀请通知/);
+    assert.match(xmindContent, /发送到期提醒通知/);
+    assert.doesNotMatch(xmindContent, /页面展示/);
+    assert.doesNotMatch(xmindContent, /正文说明/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -88,12 +89,13 @@ test('mockplus generic fixture exports generic page scenarios end-to-end', async
     const result = JSON.parse(stdout);
 
     const entries = await fs.readdir(tempDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /字段展示/);
-    assert.match(markdown, /操作入口/);
-    assert.doesNotMatch(markdown, /发送对应通知内容/);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /字段展示/);
+    assert.match(xmindContent, /操作入口/);
+    assert.doesNotMatch(xmindContent, /发送对应通知内容/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -124,11 +126,12 @@ test('mockplus merged payload exports one file set while preserving both module 
     const result = JSON.parse(stdout);
 
     const entries = await fs.readdir(tempDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /邮件通知中心/);
-    assert.match(markdown, /客户管理/);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /邮件通知中心/);
+    assert.match(xmindContent, /客户管理/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

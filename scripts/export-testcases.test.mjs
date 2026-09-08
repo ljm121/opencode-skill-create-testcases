@@ -103,10 +103,8 @@ test('export-testcases writes merged artifacts with business-scope filenames', a
     const result = JSON.parse(stdout);
     const entries = await fs.readdir(tempDir);
 
-    assert.equal(entries.length, 3);
-    assert.ok(entries.some(e => e.endsWith('.md')));
-    assert.ok(entries.some(e => e.endsWith('.xlsx')));
-    assert.ok(entries.some(e => e.endsWith('.xmind')));
+    assert.equal(entries.length, 1);
+    assert.ok(entries.every(e => e.endsWith('.xmind')));
 
     for (const mod of result.modules) {
       for (const filePath of Object.values(mod.files)) {
@@ -126,10 +124,8 @@ test('export-testcases accepts inline json text with merged output', async () =>
     const result = JSON.parse(stdout);
     const entries = await fs.readdir(tempDir);
 
-    assert.equal(entries.length, 3);
-    assert.ok(entries.some(e => e.endsWith('.md')));
-    assert.ok(entries.some(e => e.endsWith('.xlsx')));
-    assert.ok(entries.some(e => e.endsWith('.xmind')));
+    assert.equal(entries.length, 1);
+    assert.ok(entries.every(e => e.endsWith('.xmind')));
 
     for (const mod of result.modules) {
       for (const filePath of Object.values(mod.files)) {
@@ -147,25 +143,9 @@ test('export-testcases keeps 功能模块和测试步骤 and removes unwanted fi
   try {
     const { stdout } = await runExport(tempDir);
     const result = JSON.parse(stdout);
-    const mdFile = result.modules[0].files.markdown;
-    const xlsxFile = result.modules[0].files.excel;
     const xmindFile = result.modules[0].files.xmind;
 
-    const markdown = await fs.readFile(mdFile, 'utf8');
-    const excelStrings = await readZipEntry(xlsxFile, 'xl/sharedStrings.xml');
     const xmindContent = await readZipEntry(xmindFile, 'content.json');
-
-    assert.match(markdown, /功能模块/);
-    assert.doesNotMatch(markdown, /用例编号/);
-    assert.doesNotMatch(markdown, /前置条件/);
-    assert.match(markdown, /测试步骤/);
-    assert.doesNotMatch(markdown, /备注/);
-
-    assert.match(excelStrings, /功能模块/);
-    assert.match(excelStrings, /测试步骤/);
-    assert.doesNotMatch(excelStrings, /用例编号/);
-    assert.doesNotMatch(excelStrings, /前置条件/);
-    assert.doesNotMatch(excelStrings, /备注/);
 
     assert.match(xmindContent, /邮件签约通知/);
     assert.match(xmindContent, /点击后/);
@@ -240,18 +220,9 @@ test('export-testcases merges by default and preserves module grouping', async (
     const { stdout } = await runMergedExport(tempDir);
     const result = JSON.parse(stdout);
 
-    const mdFile = result.modules[0].files.markdown;
-    const xlsxFile = result.modules[0].files.excel;
     const xmindFile = result.modules[0].files.xmind;
-
-    const markdown = await fs.readFile(mdFile, 'utf8');
-    const excelStrings = await readZipEntry(xlsxFile, 'xl/sharedStrings.xml');
     const xmindContent = await readZipEntry(xmindFile, 'content.json');
 
-    assert.match(markdown, /自营请款手续费统计/);
-    assert.match(markdown, /承包商请款手续费分摊/);
-    assert.match(excelStrings, /自营请款手续费统计/);
-    assert.match(excelStrings, /承包商请款手续费分摊/);
     assert.match(xmindContent, /自营请款手续费统计/);
     assert.match(xmindContent, /承包商请款手续费分摊/);
   } finally {
@@ -272,8 +243,6 @@ test('export-testcases can split by module with -SplitByModule flag', async () =
     const entries = await fs.readdir(moduleDir);
 
     assert.deepEqual(entries.sort(), [
-      'testcases.md',
-      'testcases.xlsx',
       'testcases.xmind',
     ]);
   } finally {
@@ -301,13 +270,14 @@ test('export-testcases accepts InputPath for a markdown file', async () => {
     const result = JSON.parse(stdout);
 
     const entries = await fs.readdir(outputDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /邮件签约通知/);
-    assert.match(markdown, /需求说明/);
-    assert.match(markdown, /签约邮箱必填/);
-    assert.match(markdown, /点击发送时需要校验邮箱格式/);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /邮件签约通知/);
+    assert.match(xmindContent, /需求说明/);
+    assert.match(xmindContent, /签约邮箱必填/);
+    assert.match(xmindContent, /点击发送时需要校验邮箱格式/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -327,11 +297,12 @@ test('export-testcases merges supported files from a directory InputPath', async
     const result = JSON.parse(stdout);
 
     const entries = await fs.readdir(outputDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /自营请款/);
-    assert.match(markdown, /承包商请款/);
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /自营请款/);
+    assert.match(xmindContent, /承包商请款/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -362,13 +333,17 @@ test('export-testcases accepts InputPath for a docx file', async () => {
     const { stdout } = await runExportWithInputPath(docxPath, outputDir);
     const result = JSON.parse(stdout);
 
-    const markdown = await fs.readFile(result.modules[0].files.markdown, 'utf8');
-    assert.match(markdown, /付款审批/);
-    assert.match(markdown, /表单校验/);
-    assert.match(markdown, /审批金额不能为空/);
-    assert.match(markdown, /付款复核/);
-    assert.match(markdown, /结果展示/);
-    assert.match(markdown, /复核通过后展示付款完成状态/);
+    const entries = await fs.readdir(outputDir);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
+
+    const xmindContent = await readZipEntry(result.modules[0].files.xmind, 'content.json');
+    assert.match(xmindContent, /付款审批/);
+    assert.match(xmindContent, /表单校验/);
+    assert.match(xmindContent, /审批金额不能为空/);
+    assert.match(xmindContent, /付款复核/);
+    assert.match(xmindContent, /结果展示/);
+    assert.match(xmindContent, /复核通过后展示付款完成状态/);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
@@ -464,7 +439,8 @@ test('InputUrl with InputJsonText exports successfully and records source', asyn
     assert.match(result.inputJson, new RegExp(testUrl));
 
     const entries = await fs.readdir(tempDir);
-    assert.equal(entries.length, 3);
+    assert.equal(entries.length, 1);
+    assert.ok(entries[0].endsWith('.xmind'));
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
